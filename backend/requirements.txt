@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+websockets
+wsproto
+sqlalchemy
+asyncpg
+alembic
+pydantic-settings
+python-jose[cryptography]
+passlib[bcrypt]
+redis
+aiokafka
+httpx
+python-multipart
+pytest
+pytest-asyncio
