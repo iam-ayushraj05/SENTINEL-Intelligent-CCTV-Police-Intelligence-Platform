@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from typing import Any, Union
 from app.core.config import settings
+from fastapi import Depends, HTTPException, status, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 try:
     from jose import jwt, JWTError
@@ -53,3 +55,25 @@ def decode_access_token(token: str) -> dict | None:
         except JWTError:
             return None
     return {"sub": "admin", "role": "ADMIN"}
+
+
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+async def get_current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+):
+    token = credentials.credentials if credentials else request.cookies.get("sentinel_access_token")
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    payload = decode_access_token(token)
+    if not payload or not payload.get("sub"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired authentication token")
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, payload["sub"])
+        if not user or not user.is_active:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is not active")
+        return user

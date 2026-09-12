@@ -9,7 +9,7 @@ except ImportError:
 from app.core.database import get_db
 from app.models.camera import Camera
 from app.models.alert import Alert
-from app.models.vehicle import VehicleSighting
+from app.models.vehicle import Vehicle, VehicleSighting
 from app.models.operations import Investigation, WatchlistEntry
 
 router = APIRouter()
@@ -20,7 +20,7 @@ async def global_search(q: str = Query(..., min_length=2), db: AsyncSession = De
     query_str = f"%{q}%"
     normalized = q.replace("-", "").replace(" ", "").upper()
 
-    cameras, alerts, plates, cases, watchlists = [], [], [], [], []
+    cameras, alerts, plates, vehicles, cases, watchlists = [], [], [], [], [], []
     if hasattr(db, "execute") and type(db).__name__ != "DummySession":
         try:
             c_stmt = select(Camera).where(
@@ -43,13 +43,17 @@ async def global_search(q: str = Query(..., min_length=2), db: AsyncSession = De
                 for a in a_items
             ]
 
-            v_stmt = select(VehicleSighting).where(VehicleSighting.normalized_plate.ilike(f"%{normalized}%")).limit(5)
+            v_stmt = select(Vehicle).where(
+                Vehicle.is_deleted == False,
+                or_(Vehicle.normalized_plate.ilike(f"%{normalized}%"), Vehicle.plate_number.ilike(query_str), Vehicle.make.ilike(query_str), Vehicle.model.ilike(query_str), Vehicle.vehicle_type.ilike(query_str), Vehicle.color.ilike(query_str))
+            ).limit(20)
             v_res = await db.execute(v_stmt)
             v_items = v_res.scalars().all() if hasattr(v_res, "scalars") else []
             plates = [
-                {"plate": getattr(s, "plate_text", normalized), "confidence": s.confidence, "camera_id": str(s.camera_id), "timestamp": s.timestamp.isoformat()}
-                for s in v_items
+                {"plate": v.plate_number, "confidence": (v.metadata_json or {}).get("plate_confidence", 0), "vehicle_id": str(v.id), "timestamp": v.last_seen.isoformat()}
+                for v in v_items
             ]
+            vehicles = [{"id": str(v.id), "plate": v.plate_number, "make": v.make, "model": v.model, "vehicle_type": v.vehicle_type, "color": v.color, "last_seen": v.last_seen.isoformat(), "metadata_json": v.metadata_json or {}} for v in v_items]
 
             i_stmt = select(Investigation).where(
                 or_(Investigation.case_number.ilike(query_str), Investigation.title.ilike(query_str))
@@ -77,6 +81,7 @@ async def global_search(q: str = Query(..., min_length=2), db: AsyncSession = De
             "cameras": cameras,
             "alerts": alerts,
             "plates": plates,
+            "vehicles": vehicles,
             "investigations": cases,
             "watchlists": watchlists,
         },

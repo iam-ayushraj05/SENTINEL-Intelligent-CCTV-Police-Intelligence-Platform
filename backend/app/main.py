@@ -9,6 +9,7 @@ from app.core.database import engine
 from app.models.base import Base
 from app.api.v1.router import api_router
 from app.services.event_simulator import seed_demo_data, run_event_simulator_loop
+from app.services.emergency_service import EmergencyService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("sentinel")
@@ -23,12 +24,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Database initialization skipped or using in-memory mock: {e}")
 
-    try:
-        await seed_demo_data()
-    except Exception as e:
-        logger.warning(f"Demo data seeding note: {e}")
+    if settings.demo_mode:
+        try:
+            await seed_demo_data()
+        except Exception as e:
+            logger.warning(f"Demo data seeding note: {e}")
 
     simulator_task = None
+    followup_task = asyncio.create_task(EmergencyService.run_alert_followup_worker())
     if settings.demo_mode:
         simulator_task = asyncio.create_task(run_event_simulator_loop())
 
@@ -36,6 +39,7 @@ async def lifespan(app: FastAPI):
 
     if simulator_task:
         simulator_task.cancel()
+    followup_task.cancel()
     logger.info("Sentinel Command Center Backend shutdown complete.")
 
 

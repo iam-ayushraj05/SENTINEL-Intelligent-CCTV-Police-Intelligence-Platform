@@ -12,10 +12,12 @@ try:
 
         id: Mapped[uuid.UUID] = uuid_column()
         camera_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cameras.id", ondelete="CASCADE"), index=True)
-        object_class: Mapped[str] = mapped_column(String(50), index=True)
+        object_type: Mapped[str] = mapped_column(String(50), index=True)
         confidence: Mapped[float] = mapped_column(Float)
         bbox: Mapped[dict] = mapped_column(JSON)
         track_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+        frame_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
+        metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
         timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
 
     class DetectionTrack(Base):

@@ -17,6 +17,9 @@ try:
         color: Mapped[str | None] = mapped_column(String(30), nullable=True)
         make: Mapped[str | None] = mapped_column(String(50), nullable=True)
         model: Mapped[str | None] = mapped_column(String(50), nullable=True)
+        metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+        is_deleted: Mapped[bool] = mapped_column(default=False, index=True)
+        deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
         first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
         last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
@@ -31,6 +34,9 @@ try:
         crop_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
         timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
         metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+        normalized_plate: Mapped[str | None] = mapped_column(String(50), index=True, nullable=True)
+        is_deleted: Mapped[bool] = mapped_column(default=False, index=True)
+        deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 except ImportError:
     class Vehicle:

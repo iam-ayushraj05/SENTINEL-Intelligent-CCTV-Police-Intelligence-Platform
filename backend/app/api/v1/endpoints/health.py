@@ -23,6 +23,32 @@ async def health_services():
     }
 
 
+@router.get("/health/ai")
+async def health_ai():
+    try:
+        from ai.sentinel_ai.scheduler import resource_manager
+        status = resource_manager.get_system_status()
+        status["capabilities"] = [
+            "person_detection",
+            "vehicle_detection",
+            "anpr",
+            "face_recognition",
+            "weapon_detection",
+            "human_action_recognition",
+            "fire_smoke_validation",
+            "temporal_validation",
+        ]
+        return status
+    except Exception as e:
+        return {
+            "ai_status": "degraded",
+            "gpu_available": False,
+            "gpu_name": "N/A",
+            "error": str(e),
+            "capabilities": [],
+        }
+
+
 @router.get("/metrics", response_class=PlainTextResponse)
 async def prometheus_metrics():
     metrics = """# HELP sentinel_active_cameras Total active registered cameras
@@ -46,3 +72,4 @@ sentinel_ai_fps 28.5
 sentinel_http_requests_total 312
 """
     return metrics
+

@@ -1,149 +1,290 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import Link from "next/link";
-import { Camera, Detection } from "@/lib/types";
-import { api, MOCK_CAMERAS } from "@/lib/api";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import { LiveStreamPlayer } from "@/components/video/LiveStreamPlayer";
-import { ArrowLeft, Video, Settings, Activity, ShieldCheck, MapPin, Cpu, Clock } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { useRouter, useParams } from "next/navigation";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Camera,
+  MapPin,
+  Activity,
+  Cpu,
+  Wifi,
+  WifiOff,
+  Loader2,
+  AlertTriangle,
+} from "lucide-react";
+import LiveStreamPlayer from "@/components/video/LiveStreamPlayer";
+import { api, cctvApi, type CCTVCameraEntry } from "@/lib/api";
+import type { Camera as CameraType } from "@/lib/types";
 
 export default function CameraDetailPage() {
+  const router = useRouter();
   const params = useParams();
-  const id = params?.id as string;
+  const cameraId = params.id as string;
 
-  const [camera, setCamera] = useState<Camera | null>(null);
+  const [camera, setCamera] = useState<CameraType | null>(null);
+  const [cctvCamera, setCctvCamera] = useState<CCTVCameraEntry | null>(null);
+  const [allCameras, setAllCameras] = useState<CCTVCameraEntry[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(-1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // ---- Load Camera Data ----
   useEffect(() => {
-    if (!id) return;
-    api.getCamera(id).then((cam) => {
-      setCamera(cam || MOCK_CAMERAS[0]);
-    });
-  }, [id]);
+    async function load() {
+      setLoading(true);
+      setError(null);
 
-  if (!camera) {
+      // Try CDN catalogue first
+      try {
+        const catalogue = await cctvApi.getCatalogue();
+        const allCams = catalogue.cameras || [];
+        setAllCameras(allCams);
+
+        const found = allCams.find(
+          (c) => c.id.toLowerCase() === cameraId.toLowerCase()
+        );
+        if (found) {
+          setCctvCamera(found);
+          setCurrentIndex(allCams.indexOf(found));
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // CDN failed — try backend
+      }
+
+      // Try local backend
+      try {
+        const cam = await api.getCamera(cameraId);
+        setCamera(cam);
+      } catch {
+        setError("Camera not found");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
+  }, [cameraId]);
+
+  // ---- Prev / Next Navigation ----
+  const canPrev = currentIndex > 0;
+  const canNext = currentIndex >= 0 && currentIndex < allCameras.length - 1;
+
+  const navigateTo = useCallback(
+    (index: number) => {
+      const cam = allCameras[index];
+      if (cam) router.push(`/cameras/${cam.id}`);
+    },
+    [allCameras, router]
+  );
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight" && canNext) {
+        e.preventDefault();
+        navigateTo(currentIndex + 1);
+      } else if (e.key === "ArrowLeft" && canPrev) {
+        e.preventDefault();
+        navigateTo(currentIndex - 1);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [canPrev, canNext, currentIndex, navigateTo]);
+
+  const displayName = cctvCamera?.name || camera?.name || cameraId;
+  const displayId = cctvCamera?.id || camera?.camera_code || cameraId;
+  const displayStatus = cctvCamera?.status || camera?.status || "unknown";
+
+  if (loading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center text-xs text-slate-500 font-medium">
-        Loading CCTV Camera Stream...
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="w-8 h-8 animate-spin text-accent" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center">
+        <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-amber-500" />
+        <h2 className="text-lg font-medium">{error}</h2>
+        <p className="text-sm text-muted mt-1">Camera ID: {cameraId}</p>
+        <button
+          onClick={() => router.push("/cameras")}
+          className="mt-4 px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent/80 transition"
+        >
+          Back to Cameras
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 text-slate-800">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-300 pb-4">
+    <div className="p-4 md:p-6 space-y-4">
+      {/* Navigation Header */}
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link
-            href="/cameras"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 shadow-xs"
+          <button
+            onClick={() => router.push("/cameras")}
+            className="p-2 border border-border rounded-lg hover:bg-surface-hover transition"
+            aria-label="Back to cameras"
           >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
+            <ArrowLeft className="w-4 h-4" />
+          </button>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-black text-[#002147]">{camera.name}</h1>
-              <StatusBadge status={camera.status} />
-            </div>
-            <p className="text-xs text-slate-600 font-mono font-medium">[{camera.camera_code}] • Zone: {camera.zone}</p>
+            <h1 className="text-lg font-bold text-foreground">{displayName}</h1>
+            <p className="text-sm text-muted font-mono">{displayId}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="rounded-lg bg-[#e2f1f8] px-3 py-1 text-xs font-mono text-[#0077b6] font-bold border border-[#bde0fe]">
-            Protocol: {camera.protocol}
-          </span>
-        </div>
+        {/* Prev/Next */}
+        {allCameras.length > 0 && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => canPrev && navigateTo(currentIndex - 1)}
+              disabled={!canPrev}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-surface-hover disabled:opacity-30 transition"
+              aria-label="Previous camera"
+            >
+              <ChevronLeft className="w-4 h-4" /> Prev
+            </button>
+            <span className="text-xs text-muted">
+              {currentIndex + 1} / {allCameras.length}
+            </span>
+            <button
+              onClick={() => canNext && navigateTo(currentIndex + 1)}
+              disabled={!canNext}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-surface-hover disabled:opacity-30 transition"
+              aria-label="Next camera"
+            >
+              Next <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Main Grid: Stream Player & Metadata */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        {/* Large Stream Player */}
+      {/* Main Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Player (2/3 width) */}
+        <div className="lg:col-span-2">
+          <LiveStreamPlayer
+            key={displayId}
+            camera={camera || undefined}
+            cctvCamera={cctvCamera || undefined}
+            showOverlays={!!camera}
+          />
+        </div>
+
+        {/* Info Panel (1/3 width) */}
         <div className="space-y-4">
-          <LiveStreamPlayer camera={camera} showOverlayDefault={true} />
-
-          {/* Camera Recent AI Observations */}
-          <div className="rounded-2xl border border-[#cbd5e1] bg-white p-5 shadow-sm space-y-3">
-            <h2 className="font-extrabold text-[#002147] text-sm flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-[#0077b6]" />
-              <span>Recent AI Detection Stream</span>
-            </h2>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-xl bg-[#f8fafc] p-3.5 border border-slate-200">
-                <span className="text-[10px] font-extrabold text-slate-500 uppercase">DETECTION TARGET</span>
-                <p className="font-extrabold text-[#002147] text-sm mt-1">Car [TRK-102]</p>
-                <p className="text-[11px] text-emerald-700 font-mono font-bold mt-0.5">Confidence: 96%</p>
-              </div>
-              <div className="rounded-xl bg-[#f8fafc] p-3.5 border border-slate-200">
-                <span className="text-[10px] font-extrabold text-slate-500 uppercase">ANPR PLATE OCR</span>
-                <p className="font-mono font-black text-[#0077b6] text-sm mt-1">GJ05CD5678</p>
-                <p className="text-[11px] text-amber-800 font-extrabold mt-0.5">WATCHLIST MATCH</p>
-              </div>
-              <div className="rounded-xl bg-[#f8fafc] p-3.5 border border-slate-200">
-                <span className="text-[10px] font-extrabold text-slate-500 uppercase">PEDESTRIAN COUNT</span>
-                <p className="font-extrabold text-[#002147] text-sm mt-1">4 Active Tracks</p>
-                <p className="text-[11px] text-slate-600 mt-0.5 font-medium">Normal trajectory</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Metadata Inspector */}
-        <div className="space-y-6">
-          <div className="rounded-2xl border border-[#cbd5e1] bg-white p-5 space-y-4 shadow-sm">
-            <h2 className="font-extrabold text-[#002147] text-sm border-b border-slate-200 pb-2.5">Camera Specifications</h2>
-
-            <div className="space-y-3 text-xs">
+          {/* Status Card */}
+          <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Camera className="w-4 h-4 text-accent" /> Camera Info
+            </h3>
+            <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <span className="text-slate-500 uppercase text-[10px] font-extrabold block">Manufacturer & Model</span>
-                <span className="font-bold text-[#002147]">{camera.manufacturer} {camera.model}</span>
+                <span className="text-xs text-muted">ID</span>
+                <p className="font-mono text-xs">{displayId}</p>
               </div>
               <div>
-                <span className="text-slate-500 uppercase text-[10px] font-extrabold block">VMS System Reference</span>
-                <span className="font-mono text-slate-700 font-bold">{camera.vms_reference || "VMS-GJ-LOCAL"}</span>
+                <span className="text-xs text-muted">Status</span>
+                <p className="flex items-center gap-1">
+                  {displayStatus.toLowerCase() === "online" ||
+                  displayStatus.toLowerCase() === "live" ? (
+                    <Wifi className="w-3 h-3 text-emerald-500" />
+                  ) : (
+                    <WifiOff className="w-3 h-3 text-red-500" />
+                  )}
+                  <span className="text-xs">{displayStatus.toUpperCase()}</span>
+                </p>
+              </div>
+              {(cctvCamera?.location || camera?.zone) && (
+                <div className="col-span-2">
+                  <span className="text-xs text-muted">Location</span>
+                  <p className="flex items-center gap-1 text-xs">
+                    <MapPin className="w-3 h-3 text-muted" />
+                    {cctvCamera?.location || camera?.zone}
+                  </p>
+                </div>
+              )}
+              <div>
+                <span className="text-xs text-muted">Stream Type</span>
+                <p className="text-xs">HLS</p>
               </div>
               <div>
-                <span className="text-slate-500 uppercase text-[10px] font-extrabold block">RTSP Ingestion URL</span>
-                <span className="font-mono text-slate-600 text-[11px] break-all font-medium">{camera.stream_url}</span>
-              </div>
-              <div>
-                <span className="text-slate-500 uppercase text-[10px] font-extrabold block">GIS Coordinates</span>
-                <span className="font-mono text-[#002147] font-bold">{camera.latitude}° N, {camera.longitude}° E</span>
-              </div>
-              <div>
-                <span className="text-slate-500 uppercase text-[10px] font-extrabold block">Last Heartbeat</span>
-                <span className="text-emerald-700 font-extrabold flex items-center gap-1">
-                  <Clock className="h-3 w-3" /> Active (2 seconds ago)
-                </span>
+                <span className="text-xs text-muted">Protocol</span>
+                <p className="text-xs">{camera?.protocol || "RTSP"}</p>
               </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#cbd5e1] bg-white p-5 space-y-3 shadow-sm">
-            <h2 className="font-extrabold text-[#002147] text-sm flex items-center gap-2">
-              <Activity className="h-4 w-4 text-emerald-700" />
-              <span>Stream Telemetry</span>
-            </h2>
-
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between border-b border-slate-200 pb-2">
-                <span className="text-slate-600 font-medium">FPS Rate</span>
-                <span className="font-mono font-extrabold text-[#002147]">28.5 FPS</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200 pb-2">
-                <span className="text-slate-600 font-medium">Stream Latency</span>
-                <span className="font-mono font-extrabold text-[#002147]">38 ms</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-200 pb-2">
-                <span className="text-slate-600 font-medium">Resolution</span>
-                <span className="font-mono font-extrabold text-[#002147]">1920x1080 (1080p)</span>
+          {/* Hardware Specs (only for backend cameras) */}
+          {camera && (
+            <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
+              <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-accent" /> Hardware
+              </h3>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {camera.manufacturer && (
+                  <div>
+                    <span className="text-muted">Manufacturer</span>
+                    <p>{camera.manufacturer}</p>
+                  </div>
+                )}
+                {camera.model && (
+                  <div>
+                    <span className="text-muted">Model</span>
+                    <p>{camera.model}</p>
+                  </div>
+                )}
+                {camera.resolution && (
+                  <div>
+                    <span className="text-muted">Resolution</span>
+                    <p>{camera.resolution}</p>
+                  </div>
+                )}
+                {camera.fps && (
+                  <div>
+                    <span className="text-muted">FPS</span>
+                    <p>{camera.fps}</p>
+                  </div>
+                )}
+                {camera.latitude && camera.longitude && (
+                  <div className="col-span-2">
+                    <span className="text-muted">Coordinates</span>
+                    <p>{camera.latitude.toFixed(4)}, {camera.longitude.toFixed(4)}</p>
+                  </div>
+                )}
               </div>
             </div>
+          )}
+
+          {/* AI Detections */}
+          <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Activity className="w-4 h-4 text-accent" /> AI Intelligence
+            </h3>
+            <p className="text-xs text-muted">
+              AI detection events will appear here when the pipeline is processing this camera's stream.
+            </p>
           </div>
         </div>
       </div>
+
+      {/* Keyboard Hint */}
+      {allCameras.length > 1 && (
+        <p className="text-center text-xs text-muted">
+          Use <kbd className="px-1 py-0.5 bg-surface border border-border rounded text-xs">←</kbd>{" "}
+          <kbd className="px-1 py-0.5 bg-surface border border-border rounded text-xs">→</kbd> arrow keys to navigate between cameras
+        </p>
+      )}
     </div>
   );
 }

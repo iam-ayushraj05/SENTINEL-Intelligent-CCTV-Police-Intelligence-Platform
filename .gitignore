@@ -1,15 +1,57 @@
+# Dependencies
 node_modules/
-.next/
+venv/
+.venv/
+
+# Environment files
 .env
 .env.*
 !.env.example
+
+# Python
 __pycache__/
-*.pyc
-.venv/
+*.py[cod]
 .pytest_cache/
 .mypy_cache/
-.vscode/
-.idea/
+.coverage
 coverage/
+
+# Next.js
+.next/
+out/
 dist/
 build/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+
+# Databases / local runtime data
+*.db
+*.sqlite
+*.sqlite3
+
+# AI / ML model files
+*.pt
+*.onnx
+*.weights
+
+# Generated / temporary files
+graphify-out/
+.agent/
+.agents/
+ultralytics/
+
+# Windows/system artifacts
+%SystemDrive%/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# External nested repository
+face-recognition-using-deep-learning/

@@ -42,19 +42,19 @@ class CameraRead(BaseModel):
     description: str | None = None
     department_id: uuid.UUID | None = None
     zone: str | None = None
-    camera_type: str
+    camera_type: str = "CCTV"
     manufacturer: str | None = None
     model: str | None = None
-    protocol: str
+    protocol: str = "RTSP"
     stream_url: str | None = None
     vms_reference: str | None = None
     latitude: float | None = None
     longitude: float | None = None
-    status: str
-    is_active: bool
+    status: str = "ONLINE"
+    is_active: bool = True
     last_heartbeat: datetime | None = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -73,5 +73,5 @@ class CameraStreamDescriptor(BaseModel):
 class CameraHealthCheckResponse(BaseModel):
     camera_id: uuid.UUID
     status: str
-    latency_ms: float
+    latency_ms: float | None = None
     checked_at: datetime

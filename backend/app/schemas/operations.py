@@ -78,6 +78,7 @@ class InvestigationRead(BaseModel):
     notes: list[InvestigationNoteRead] = []
     events: list[dict] = []
     evidence: list[dict] = []
+    person_details: list[dict] = []
 
     class Config:
         from_attributes = True

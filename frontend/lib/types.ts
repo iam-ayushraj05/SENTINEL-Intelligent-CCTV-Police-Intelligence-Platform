@@ -14,12 +14,19 @@ export interface Camera {
   manufacturer?: string;
   model?: string;
   protocol: string;
+  feed_type?: string;
   stream_url?: string;
+  source_url?: string;
   vms_reference?: string;
   latitude?: number;
   longitude?: number;
   status: CameraStatus;
   is_active: boolean;
+  fps?: number;
+  resolution?: string;
+  ai_detection_status?: string;
+  last_detection?: string;
+  alert_count?: number;
   last_heartbeat?: string;
   created_at: string;
   updated_at: string;
@@ -36,9 +43,12 @@ export interface Alert {
   title: string;
   description?: string;
   confidence?: number;
+  verification_status?: string;
+  investigation_status?: string;
+  evidence_url?: string;
   status: AlertStatus;
   assigned_officer?: string;
-  evidence_url?: string;
+  evidence_frame?: string;
   metadata_json?: Record<string, any>;
   created_at: string;
   updated_at: string;
@@ -66,6 +76,7 @@ export interface Sighting {
   vehicle_type?: string;
   color?: string;
   evidence_url?: string;
+  metadata_json?: Record<string, any>;
 }
 
 export interface VehicleIntelligence {
@@ -81,6 +92,9 @@ export interface VehicleIntelligence {
   sightings: Sighting[];
   watchlist_matches: Array<{ id: string; priority: string; source_system: string }>;
   registered_owner?: Record<string, any>;
+  metadata_json?: Record<string, any>;
+  match_scores?: Record<string, number>;
+  deleted?: boolean;
 }
 
 export interface InvestigationNote {
@@ -104,6 +118,7 @@ export interface Investigation {
   notes: InvestigationNote[];
   events: any[];
   evidence: Array<{ id: string; code: string; type: string; url: string }>;
+  person_details?: Array<Record<string, any>>;
 }
 
 export interface Watchlist {
