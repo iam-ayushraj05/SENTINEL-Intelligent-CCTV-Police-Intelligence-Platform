@@ -13,7 +13,7 @@ export interface Camera {
   camera_type: string;
   manufacturer?: string;
   model?: string;
-  protocol: string;
+  protocol?: string;
   feed_type?: string;
   stream_url?: string;
   source_url?: string;
@@ -51,7 +51,7 @@ export interface Alert {
   evidence_frame?: string;
   metadata_json?: Record<string, any>;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
 }
 
 export interface Detection {
@@ -112,12 +112,12 @@ export interface Investigation {
   description?: string;
   status: string;
   assigned_officer_name?: string;
-  created_by: string;
+  created_by?: string;
   created_at: string;
-  updated_at: string;
-  notes: InvestigationNote[];
-  events: any[];
-  evidence: Array<{ id: string; code: string; type: string; url: string }>;
+  updated_at?: string;
+  notes?: InvestigationNote[];
+  events?: any[];
+  evidence?: Array<{ id: string; code: string; type: string; url: string }>;
   person_details?: Array<Record<string, any>>;
 }
 
@@ -125,29 +125,38 @@ export interface Watchlist {
   id: string;
   name: string;
   description?: string;
-  entity_type: string;
-  status: string;
+  entity_type?: string;
+  status?: string;
+  category?: string;
+  priority?: string;
+  active?: boolean;
+  entries_count?: number;
   created_at: string;
 }
 
 export interface WatchlistEntry {
   id: string;
   watchlist_id: string;
-  subject_reference: string;
+  subject_reference?: string;
+  reference_value?: string;
   normalized_reference: string;
   source_system?: string;
+  category?: string;
   priority: string;
+  reason?: string;
   active: boolean;
   created_at: string;
 }
 
 export interface AuditLogItem {
   id: string;
-  username: string;
-  action: string;
-  resource: string;
-  result: string;
-  ip_address: string;
+  username?: string;
+  actor?: string;
+  action?: string;
+  event_type?: string;
+  resource?: string;
+  result?: string;
+  ip_address?: string;
   timestamp: string;
 }
 

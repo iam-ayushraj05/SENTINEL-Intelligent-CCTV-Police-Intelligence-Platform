@@ -17,9 +17,9 @@ export default function AuditLogsPage() {
     if (search.trim()) {
       const q = search.toLowerCase();
       return (
-        l.username.toLowerCase().includes(q) ||
-        l.action.toLowerCase().includes(q) ||
-        l.resource.toLowerCase().includes(q)
+        (l.username || l.actor || "").toLowerCase().includes(q) ||
+        (l.action || l.event_type || "").toLowerCase().includes(q) ||
+        (l.resource || "").toLowerCase().includes(q)
       );
     }
     return true;
@@ -66,13 +66,13 @@ export default function AuditLogsPage() {
             {filtered.map((log) => (
               <tr key={log.id} className="hover:bg-[#e2f1f8]/40 transition-colors">
                 <td className="p-3.5 text-slate-500 font-bold">{new Date(log.timestamp).toLocaleString()}</td>
-                <td className="p-3.5 font-black text-[#0077b6]">{log.username}</td>
-                <td className="p-3.5 text-[#002147] font-sans font-extrabold">{log.action}</td>
-                <td className="p-3.5 text-amber-800 font-bold">{log.resource}</td>
-                <td className="p-3.5 text-slate-500">{log.ip_address}</td>
+                <td className="p-3.5 font-black text-[#0077b6]">{log.username || log.actor || "System"}</td>
+                <td className="p-3.5 text-[#002147] font-sans font-extrabold">{log.action || log.event_type || "ACTION"}</td>
+                <td className="p-3.5 text-amber-800 font-bold">{log.resource || "N/A"}</td>
+                <td className="p-3.5 text-slate-500">{log.ip_address || "127.0.0.1"}</td>
                 <td className="p-3.5 text-right">
                   <span className="rounded bg-emerald-50 px-2.5 py-0.5 text-[10px] font-extrabold text-emerald-800 border border-emerald-200 font-sans">
-                    {log.result}
+                    {log.result || "SUCCESS"}
                   </span>
                 </td>
               </tr>

@@ -17,7 +17,13 @@ export default function AlertsPage() {
   const [loading, setLoading] = useState(true);
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualCameras, setManualCameras] = useState<Camera[]>([]);
-  const [manualForm, setManualForm] = useState({ alert_type: "OPERATOR_REPORT", severity: "MEDIUM", title: "", description: "", camera_id: "" });
+  const [manualForm, setManualForm] = useState<{
+    alert_type: string;
+    severity: Severity;
+    title: string;
+    description: string;
+    camera_id: string;
+  }>({ alert_type: "OPERATOR_REPORT", severity: "MEDIUM", title: "", description: "", camera_id: "" });
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
 
@@ -82,7 +88,11 @@ export default function AlertsPage() {
     setManualSaving(true);
     setManualError(null);
     try {
-      const created = await api.createAlert({ ...manualForm, camera_id: manualForm.camera_id || undefined });
+      const created = await api.createAlert({
+        ...manualForm,
+        severity: manualForm.severity as Severity,
+        camera_id: manualForm.camera_id || undefined,
+      });
       setAlerts((previous) => [created, ...previous]);
       setManualForm({ alert_type: "OPERATOR_REPORT", severity: "MEDIUM", title: "", description: "", camera_id: "" });
       setShowManualForm(false);
@@ -131,7 +141,7 @@ export default function AlertsPage() {
           <form onSubmit={handleManualAlert} className="grid gap-3 md:grid-cols-2">
             <label className="text-xs font-bold text-slate-700">Alert title<input required value={manualForm.title} onChange={(event) => setManualForm({ ...manualForm, title: event.target.value })} placeholder="Describe the incident" className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal outline-none focus:border-[#0077b6]" /></label>
             <label className="text-xs font-bold text-slate-700">Alert type<select value={manualForm.alert_type} onChange={(event) => setManualForm({ ...manualForm, alert_type: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal outline-none focus:border-[#0077b6]"><option value="OPERATOR_REPORT">Operator report</option><option value="SUSPICIOUS_ACTIVITY">Suspicious activity</option><option value="PUBLIC_SAFETY">Public safety</option><option value="CAMERA_ISSUE">Camera issue</option></select></label>
-            <label className="text-xs font-bold text-slate-700">Severity<select value={manualForm.severity} onChange={(event) => setManualForm({ ...manualForm, severity: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal outline-none focus:border-[#0077b6]"><option value="LOW">LOW</option><option value="MEDIUM">MEDIUM</option><option value="HIGH">HIGH</option><option value="CRITICAL">CRITICAL</option></select></label>
+            <label className="text-xs font-bold text-slate-700">Severity<select value={manualForm.severity} onChange={(event) => setManualForm({ ...manualForm, severity: event.target.value as Severity })} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal outline-none focus:border-[#0077b6]"><option value="LOW">LOW</option><option value="MEDIUM">MEDIUM</option><option value="HIGH">HIGH</option><option value="CRITICAL">CRITICAL</option></select></label>
             <label className="text-xs font-bold text-slate-700">Camera (optional)<select value={manualForm.camera_id} onChange={(event) => setManualForm({ ...manualForm, camera_id: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal outline-none focus:border-[#0077b6]"><option value="">No camera selected</option>{manualCameras.map((camera) => <option key={camera.id} value={camera.id}>{camera.name} ({camera.camera_code})</option>)}</select></label>
             <label className="text-xs font-bold text-slate-700 md:col-span-2">Details<textarea value={manualForm.description} onChange={(event) => setManualForm({ ...manualForm, description: event.target.value })} rows={3} placeholder="Add useful context for responding officers" className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal outline-none focus:border-[#0077b6]" /></label>
             {manualError && <p className="text-xs font-semibold text-rose-700 md:col-span-2">{manualError}</p>}

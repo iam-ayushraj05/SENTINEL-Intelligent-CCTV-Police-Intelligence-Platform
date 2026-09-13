@@ -9,6 +9,8 @@ import {
   AuditLogItem,
   DashboardSummary,
   User,
+  AlertStatus,
+  Severity,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
@@ -69,6 +71,7 @@ export const api = {
       sessionStorage.removeItem("sentinel_access_token");
     }
   },
+  getUsers: () => fetcher<User[]>("/users").catch(() => []),
 
   // Cameras
   getCameras: () => fetcher<Camera[]>("/cameras").catch(() => MOCK_CAMERAS),
@@ -103,6 +106,22 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ notes }),
     }).catch(() => ({ ...(MOCK_ALERTS.find((a) => a.id === id) || MOCK_ALERTS[0]), status: "RESOLVED" as AlertStatus })),
+  createAlert: (data: Partial<Alert>) =>
+    fetcher<Alert>("/alerts", { method: "POST", body: JSON.stringify(data) }).catch(() => ({
+      id: `alt-${Date.now()}`,
+      alert_code: `ALT-${Date.now()}`,
+      alert_type: data.alert_type || "OPERATOR_REPORT",
+      severity: (data.severity || "MEDIUM") as Severity,
+      title: data.title || "Manual Alert",
+      description: data.description || "",
+      status: "OPEN" as AlertStatus,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  stopAlertEscalation: (id: string) =>
+    fetcher<{ message: string; alert_id: string }>(`/alerts/${id}/stop-escalation`, {
+      method: "POST",
+    }).catch(() => ({ message: "Escalation stopped", alert_id: id })),
 
   // Detections & AI
   getDetections: (camera_id?: string) =>
@@ -111,8 +130,11 @@ export const api = {
   // Vehicles & ANPR
   getVehicleIntelligence: (plate: string, from_time?: string, to_time?: string) =>
     fetcher<VehicleIntelligence>(`/vehicles/${plate}${from_time || to_time ? `?${new URLSearchParams({ ...(from_time ? { from_time } : {}), ...(to_time ? { to_time } : {}) }).toString()}` : ""}`).catch(() => ({
+      plate: plate,
       plate_number: plate,
       normalized_plate: plate.replace(/[^A-Z0-9]/gi, "").toUpperCase(),
+      first_seen: new Date(Date.now() - 3600000 * 2).toISOString(),
+      last_seen: new Date(Date.now() - 3600000).toISOString(),
       vehicle_type: "Sedan",
       color: "White",
       make_model: "Hyundai Verna",
@@ -199,7 +221,21 @@ export const api = {
     return fetcher<{ photo_url: string }>(`/persons/${id}/photo`, { method: "POST", body, headers: {} });
   },
 
-  // Government & Search & Audit & Simulator
+  // Government & Search & Audit & Simulator & Dashboard
+  getDashboardSummary: () =>
+    fetcher<DashboardSummary>("/dashboard/summary").catch(() => ({
+      total_cameras: 30,
+      online_cameras: 28,
+      offline_cameras: 1,
+      degraded_cameras: 1,
+      active_alerts: 12,
+      critical_alerts: 2,
+      high_alerts: 5,
+      ai_events_today: 3842,
+      persons_detected_today: 1420,
+      vehicles_detected_today: 2422,
+      recent_incidents_count: 8,
+    })),
   lookupGovernmentVehicle: (plate_number: string) =>
     fetcher<any>("/government/vehicle-lookup", {
       method: "POST",
@@ -283,7 +319,7 @@ export const MOCK_DETECTIONS: Detection[] = [
     camera_id: "cam01",
     object_type: "vehicle",
     confidence: 0.95,
-    bbox: { x1: 100, y1: 120, x2: 350, y2: 400 },
+    bbox: { x: 100, y: 120, w: 250, h: 280 },
     timestamp: new Date().toISOString(),
   },
   {
@@ -291,7 +327,7 @@ export const MOCK_DETECTIONS: Detection[] = [
     camera_id: "cam01",
     object_type: "person",
     confidence: 0.91,
-    bbox: { x1: 400, y1: 150, x2: 480, y2: 380 },
+    bbox: { x: 400, y: 150, w: 80, h: 230 },
     timestamp: new Date(Date.now() - 30000).toISOString(),
   },
 ];
