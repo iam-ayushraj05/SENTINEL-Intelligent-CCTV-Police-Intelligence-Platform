@@ -11,53 +11,60 @@ import {
   User,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
 async function fetcher<T>(endpoint: string, options?: RequestInit): Promise<T> {
   try {
+    const isMultipart = typeof FormData !== "undefined" && options?.body instanceof FormData;
+    const accessToken = typeof window !== "undefined" ? sessionStorage.getItem("sentinel_access_token") : null;
     const res = await fetch(`${API_BASE}${endpoint}`, {
+      credentials: "include",
       headers: {
-        "Content-Type": "application/json",
+        ...(isMultipart ? {} : { "Content-Type": "application/json" }),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...options?.headers,
       },
       ...options,
     });
     if (!res.ok) {
-      throw new Error(`API Error ${res.status}: ${res.statusText}`);
+      let detail = res.statusText;
+      try {
+        const payload = await res.json();
+        const structuredDetail = payload.detail;
+        detail = typeof structuredDetail === "string"
+          ? structuredDetail
+          : structuredDetail?.message || payload.message || detail;
+      } catch {
+        // Keep the HTTP status when the server did not return JSON.
+      }
+      throw new Error(`API Error ${res.status}: ${detail}`);
     }
     return await res.json();
   } catch (err) {
-    console.warn(`API call ${endpoint} failed, utilizing local fallback state:`, err);
+    console.warn(`API call ${endpoint} failed:`, err);
+    if (err instanceof TypeError) {
+      throw new Error("SENTINEL API is unavailable. Check the application connection and try again.");
+    }
     throw err;
   }
 }
 
+export const fetchAPI = fetcher;
+
 export const api = {
   // Auth
   login: async (username: string, password: string) => {
-    try {
-      return await fetcher<{ access_token: string; user: User }>("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ username, password }),
-      });
-    } catch {
-      return {
-        access_token: "demo-jwt-token",
-        user: {
-          id: "demo-user-1",
-          username,
-          email: `${username}@sentinel.police.gov.in`,
-          full_name: username === "admin" ? "Inspector General A. Sharma" : "Sub-Inspector R. Patel",
-          role: (username === "admin" ? "ADMIN" : "OPERATOR") as User["role"],
-          badge_number: "GJ-POL-001",
-          is_active: true,
-        },
-      };
-    }
+    const result = await fetcher<{ access_token: string; user: User }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+    if (typeof window !== "undefined") sessionStorage.setItem("sentinel_access_token", result.access_token);
+    return result;
   },
   logout: async () => {
+    try { await fetcher<void>("/auth/logout", { method: "POST" }); } catch { /* local session cleanup still runs */ }
     if (typeof window !== "undefined") {
-      localStorage.removeItem("auth_token");
+      sessionStorage.removeItem("sentinel_access_token");
       sessionStorage.clear();
     }
     return { success: true };
@@ -122,6 +129,13 @@ export const api = {
     return fetcher<Alert[]>(`/alerts${q}`).catch(() => MOCK_ALERTS);
   },
   getAlert: (id: string) => fetcher<Alert>(`/alerts/${id}`).catch(() => MOCK_ALERTS[0]),
+  createAlert: (data: {
+    alert_type: string;
+    severity: string;
+    title: string;
+    description?: string;
+    camera_id?: string;
+  }) => fetcher<Alert>("/alerts", { method: "POST", body: JSON.stringify({ ...data, metadata_json: { source: "MANUAL" } }) }),
   acknowledgeAlert: (id: string, officer_name?: string, note?: string) =>
     fetcher<Alert>(`/alerts/${id}/acknowledge`, {
       method: "POST",
@@ -134,11 +148,12 @@ export const api = {
     }),
   resolveAlert: (id: string) => fetcher<Alert>(`/alerts/${id}/resolve`, { method: "POST" }),
   dismissAlert: (id: string) => fetcher<Alert>(`/alerts/${id}/dismiss`, { method: "POST" }),
+  stopAlertEscalation: (id: string) => fetcher<{ status: string }>(`/alerts/${id}/stop-escalation`, { method: "POST" }),
 
   // Detections & Vehicles
   getDetections: () => fetcher<Detection[]>("/detections").catch(() => []),
-  getVehicleIntelligence: (plate: string) =>
-    fetcher<VehicleIntelligence>(`/vehicles/${plate}/sightings`).catch(() => ({
+  getVehicleIntelligence: (plate: string, fromTime?: string, toTime?: string) =>
+    fetcher<VehicleIntelligence>(`/vehicles/${plate}/sightings${fromTime || toTime ? `?${new URLSearchParams({ ...(fromTime ? { from_time: fromTime } : {}), ...(toTime ? { to_time: toTime } : {}) }).toString()}` : ""}`).catch(() => ({
       plate,
       normalized_plate: plate.replace(/[^A-Z0-9]/gi, "").toUpperCase(),
       vehicle_type: "Mahindra Bolero - Silver",
@@ -183,6 +198,7 @@ export const api = {
       },
     })),
   getVehicleRoute: (plate: string) => fetcher<any>(`/vehicles/${plate}/route`).catch(() => ({ plate, segments: [] })),
+  getDeletedVehicles: () => fetcher<Array<{ id: string; plate: string; deleted_at: string | null; metadata_json?: Record<string, any> }>>("/vehicles/deleted"),
 
   // Watchlists
   getWatchlists: () => fetcher<Watchlist[]>("/watchlists").catch(() => MOCK_WATCHLISTS),
@@ -204,6 +220,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ note, author }),
     }),
+  getPersons: (search?: string) => fetcher<Array<Record<string, unknown>>>(`/persons${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+  createPerson: (data: Record<string, unknown>) => fetcher<{ id: string; person_code: string; case_id: string; status: string }>("/persons", { method: "POST", body: JSON.stringify(data) }),
+  createPersonIntake: (data: { full_name: string; alias?: string; date_of_birth?: string; gender?: string; agency_unit?: string; phone_number?: string; address?: string; case_title: string; case_notes?: string; photo?: File }) => {
+    const body = new FormData();
+    Object.entries(data).forEach(([key, value]) => { if (value !== undefined && value !== "") body.append(key, value instanceof File ? value : String(value)); });
+    return fetcher<{ id: string; person_code: string; case_id: string; status: string }>("/persons/intake", { method: "POST", body });
+  },
+  uploadPersonPhoto: (id: string, photo: File) => {
+    const body = new FormData();
+    body.append("photo", photo);
+    return fetcher<{ photo_url: string }>(`/persons/${id}/photo`, { method: "POST", body, headers: {} });
+  },
 
   // Government & Search & Audit & Simulator
   lookupGovernmentVehicle: (plate_number: string) =>
@@ -225,14 +253,14 @@ export const MOCK_CAMERAS: Camera[] = [
   {
     id: "cam-1",
     camera_code: "CAM-GJ01-001",
-    name: "Ring Road Junction North",
-    description: "Surveillance camera at Ahmedabad Ring Road North Junction",
+    name: "16 Fake Security Cameras Prank",
+    description: "Local video feed assigned to Ahmedabad Ring Road North Junction",
     zone: "Ahmedabad Central",
     camera_type: "ANPR",
     manufacturer: "Hikvision Sentinel",
     model: "DS-2CD2043G2-I",
-    protocol: "RTSP",
-    stream_url: "http://localhost:8889/live/cam01",
+    protocol: "FILE",
+    stream_url: "http://localhost:8000/api/v1/feeds/local-camera-video",
     vms_reference: "VMS-GJ-1024",
     latitude: 23.0225,
     longitude: 72.5714,
@@ -494,3 +522,115 @@ export const MOCK_AUDIT_LOGS: AuditLogItem[] = [
   },
 ];
 
+
+// ==========================================
+// CCTV CDN Catalogue & Stream API
+// ==========================================
+
+export interface CCTVCameraEntry {
+  id: string;
+  name?: string;
+  location?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+export interface CCTVCatalogueResponse {
+  status: string;
+  cameras: CCTVCameraEntry[];
+  totalCount?: number;
+  source?: string;
+  message?: string;
+}
+
+export interface PlateSearchResult {
+  id: string;
+  plate_text: string;
+  normalized_plate: string;
+  confidence: number;
+  camera_id: string;
+  camera_code: string | null;
+  camera_name: string | null;
+  camera_zone: string | null;
+  timestamp: string;
+  vehicle_class: string | null;
+  direction: string | null;
+  snapshot_url: string | null;
+}
+
+export interface VehicleJourneyObservation {
+  sequence_index: number;
+  camera_id: string;
+  camera_code: string | null;
+  camera_name: string | null;
+  zone: string | null;
+  timestamp: string;
+  plate_text: string;
+  confidence: number;
+  time_gap_seconds: number | null;
+  previous_camera: string | null;
+  next_camera: string | null;
+  time_to_next_seconds: number | null;
+}
+
+export const cctvApi = {
+  /** Fetch camera catalogue from CDN proxy (or fallback) */
+  async getCatalogue(): Promise<CCTVCatalogueResponse> {
+    try {
+      const res = await fetch("/api/cctv/cameras");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      console.warn("CCTV catalogue fetch failed, using backend fallback");
+      // Fallback to local backend
+      try {
+        const cameras = await api.getCameras();
+        return {
+          status: "BACKEND_FALLBACK",
+          cameras: cameras.map((c) => ({
+            id: c.camera_code || c.id,
+            name: c.name,
+            location: c.zone || undefined,
+            status: c.status?.toLowerCase(),
+          })),
+          totalCount: cameras.length,
+          source: "backend",
+        };
+      } catch {
+        return { status: "ERROR", cameras: [], totalCount: 0, source: "none" };
+      }
+    }
+  },
+
+  /** Get the proxied HLS stream URL for a camera */
+  getStreamUrl(cameraId: string): string {
+    return `/api/cctv/stream/${cameraId}/index.m3u8`;
+  },
+
+  /** Search ANPR plate observations */
+  async searchPlates(params: {
+    plate: string;
+    camera_id?: string;
+    start_time?: string;
+    end_time?: string;
+    min_confidence?: number;
+  }): Promise<{ results: PlateSearchResult[]; total: number }> {
+    const searchParams = new URLSearchParams({ plate: params.plate });
+    if (params.camera_id) searchParams.set("camera_id", params.camera_id);
+    if (params.start_time) searchParams.set("start_time", params.start_time);
+    if (params.end_time) searchParams.set("end_time", params.end_time);
+    if (params.min_confidence !== undefined) searchParams.set("min_confidence", String(params.min_confidence));
+    return fetcher(`/search/plates?${searchParams}`);
+  },
+
+  /** Get cross-camera vehicle journey */
+  async getVehicleJourney(plate: string, minConfidence = 0.5): Promise<{
+    plate: string;
+    journey_type: string;
+    observation_count: number;
+    observations: VehicleJourneyObservation[];
+    disclaimer: string;
+  }> {
+    return fetcher(`/vehicles/${encodeURIComponent(plate)}/journey?min_confidence=${minConfidence}`);
+  },
+};

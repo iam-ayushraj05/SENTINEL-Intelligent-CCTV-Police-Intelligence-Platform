@@ -14,6 +14,7 @@ class SightingRead(BaseModel):
     vehicle_type: str | None = None
     color: str | None = None
     evidence_url: str | None = None
+    metadata_json: dict | None = None
 
     class Config:
         from_attributes = True
@@ -32,6 +33,9 @@ class VehicleIntelligenceResponse(BaseModel):
     sightings: list[SightingRead]
     watchlist_matches: list[dict] = []
     registered_owner: dict | None = None
+    metadata_json: dict | None = None
+    match_scores: dict | None = None
+    deleted: bool = False
 
 
 class RouteSegment(BaseModel):

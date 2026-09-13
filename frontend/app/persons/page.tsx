@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { UserCheck, Search, ShieldAlert, Eye, Clock, MapPin } from "lucide-react";
+import { UserCheck, Search, ShieldAlert, Eye, Clock, MapPin, Plus, X, Upload } from "lucide-react";
+import { api } from "@/lib/api";
+import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
 interface PersonTrack {
@@ -12,7 +14,7 @@ interface PersonTrack {
   cameras_count: number;
   last_camera: string;
   zone: string;
-  match_status: "ANONYMOUS" | "POSSIBLE_MATCH" | "VERIFIED";
+  match_status: "ANONYMOUS" | "POSSIBLE_MATCH" | "VERIFIED" | "MANUAL_RECORD";
   confidence: number;
   matched_ref?: string;
   thumbnail: string;
@@ -60,10 +62,52 @@ const MOCK_PERSONS: PersonTrack[] = [
 ];
 
 export default function PersonsIntelligencePage() {
+  const router = useRouter();
   const [search, setSearch] = useState("");
-  const [selectedTrack, setSelectedTrack] = useState<PersonTrack>(MOCK_PERSONS[0]);
+  const [savedPersons, setSavedPersons] = useState<PersonTrack[]>([]);
+  const [selectedTrack, setSelectedTrack] = useState<PersonTrack | null>(null);
+  const [recordsLoading, setRecordsLoading] = useState(true);
+  const [recordsError, setRecordsError] = useState("");
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ full_name: "", alias: "", date_of_birth: "", gender: "", phone_number: "", address: "", agency_unit: "", notes: "", case_title: "" });
 
-  const filtered = MOCK_PERSONS.filter(
+  const loadPersons = async () => {
+    setRecordsLoading(true);
+    setRecordsError("");
+    try {
+      const records = await api.getPersons();
+      const mapped = records.map((record) => ({
+        id: String(record.id), track_code: String(record.person_code), first_observed: String(record.created_at || ""), last_observed: String(record.created_at || ""), cameras_count: 0, last_camera: `Manual record${record.case_title ? ` · ${record.case_title}` : ""}`, zone: String(record.agency_unit || "Not specified"), match_status: "MANUAL_RECORD" as const, confidence: 0, thumbnail: String((record.metadata_json as Record<string, unknown> | undefined)?.photo_url || ""), matched_ref: undefined,
+      }));
+      setSavedPersons(mapped);
+      setSelectedTrack((current) => current && mapped.some((item) => item.id === current.id) ? current : mapped[0] || null);
+    } catch (reason) {
+      setRecordsError(reason instanceof Error ? reason.message : "Saved person records could not be loaded.");
+      setSavedPersons([]);
+      setSelectedTrack(null);
+    } finally { setRecordsLoading(false); }
+  };
+
+  React.useEffect(() => { void loadPersons(); }, []);
+
+  const createManualPerson = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!form.full_name.trim() || !form.case_title.trim()) { setError("Person name and case title are required."); return; }
+    setSaving(true); setError("");
+    try {
+      const person = await api.createPersonIntake({ full_name: form.full_name, alias: form.alias, date_of_birth: form.date_of_birth, gender: form.gender, phone_number: form.phone_number, address: form.address, agency_unit: form.agency_unit, case_title: form.case_title, case_notes: form.notes, photo: photo || undefined });
+      await loadPersons();
+      setShowManualForm(false);
+      router.push(`/investigations/${person.case_id}`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to save the person and case.");
+    } finally { setSaving(false); }
+  };
+
+  const filtered = savedPersons.filter(
     (p) =>
       p.track_code.toLowerCase().includes(search.toLowerCase()) ||
       p.last_camera.toLowerCase().includes(search.toLowerCase())
@@ -84,11 +128,14 @@ export default function PersonsIntelligencePage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button type="button" onClick={() => { setError(""); setShowManualForm(true); }} className="flex items-center gap-1.5 rounded-lg bg-[#0077b6] px-3 py-2 text-xs font-extrabold text-white hover:bg-[#005b8e]"><Plus className="h-4 w-4" /> Add Person Record</button>
           <span className="rounded-full bg-[#e2f1f8] px-3 py-1 text-xs font-black text-[#0077b6] border border-[#bde0fe] shadow-xs">
             PRIVACY SAFEGUARDS ACTIVE
           </span>
         </div>
       </div>
+
+      {showManualForm && <div className="rounded-2xl border border-[#bde0fe] bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-sm font-black text-[#002147]">Manual Person Intelligence Record</h2><p className="mt-1 text-xs text-slate-500">Create a structured person record and linked case file.</p></div><button type="button" onClick={() => setShowManualForm(false)} aria-label="Close form" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button></div><form onSubmit={createManualPerson} className="grid gap-3 md:grid-cols-2"><label className="text-xs font-bold text-slate-700">Full name<input required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal" /></label><label className="text-xs font-bold text-slate-700">Case title<input required value={form.case_title} onChange={(e) => setForm({ ...form, case_title: e.target.value })} placeholder="Investigation case title" className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal" /></label><label className="text-xs font-bold text-slate-700">Alias<input value={form.alias} onChange={(e) => setForm({ ...form, alias: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal" /></label><label className="text-xs font-bold text-slate-700">Date of birth<input type="date" value={form.date_of_birth} onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal" /></label><label className="text-xs font-bold text-slate-700">Gender<select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal"><option value="">Not specified</option><option>Female</option><option>Male</option><option>Other</option></select></label><label className="text-xs font-bold text-slate-700">Phone number<input value={form.phone_number} onChange={(e) => setForm({ ...form, phone_number: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal" /></label><label className="text-xs font-bold text-slate-700">Agency / unit<input value={form.agency_unit} onChange={(e) => setForm({ ...form, agency_unit: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal" /></label><label className="text-xs font-bold text-slate-700">Identity photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setPhoto(e.target.files?.[0] || null)} className="mt-1 block w-full text-xs" /></label><label className="text-xs font-bold text-slate-700 md:col-span-2">Address<textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} rows={2} className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal" /></label><label className="text-xs font-bold text-slate-700 md:col-span-2">Case notes<textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} placeholder="Known facts, source, and initial investigator notes" className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-normal" /></label>{error && <p className="text-xs font-semibold text-rose-700 md:col-span-2">{error}</p>}<div className="flex justify-end gap-2 md:col-span-2"><button type="button" onClick={() => setShowManualForm(false)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">Cancel</button><button type="submit" disabled={saving} className="flex items-center gap-1.5 rounded-lg bg-[#0077b6] px-4 py-2 text-xs font-bold text-white disabled:opacity-50"><Upload className="h-3.5 w-3.5" />{saving ? "Saving record..." : "Create person & case"}</button></div></form></div>}
 
       {/* Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -111,7 +158,7 @@ export default function PersonsIntelligencePage() {
                 key={person.id}
                 onClick={() => setSelectedTrack(person)}
                 className={`cursor-pointer flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-2xl border transition-all shadow-sm ${
-                  selectedTrack.id === person.id
+                  selectedTrack?.id === person.id
                     ? "border-[#0077b6] bg-[#e2f1f8]/60 shadow-md"
                     : "border-[#cbd5e1] bg-white hover:border-[#0077b6]"
                 }`}
@@ -154,6 +201,10 @@ export default function PersonsIntelligencePage() {
 
         {/* Right Detail Card */}
         <div className="rounded-2xl border border-[#cbd5e1] bg-white p-5 space-y-5 h-fit shadow-sm">
+          {recordsLoading && <p className="text-xs text-slate-500">Loading saved person records...</p>}
+          {recordsError && <p className="text-xs font-semibold text-rose-700">{recordsError}</p>}
+          {!recordsLoading && !recordsError && !filtered.length && <p className="text-xs text-slate-500">No saved person records found. Camera tracks remain separate from manual records.</p>}
+          {selectedTrack && <>
           <div className="flex items-center justify-between border-b border-slate-200 pb-3">
             <h2 className="font-extrabold text-[#002147] text-base flex items-center gap-2">
               <Eye className="h-5 w-5 text-[#0077b6]" />
@@ -206,6 +257,7 @@ export default function PersonsIntelligencePage() {
           <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-[11px] text-amber-900 font-medium leading-relaxed">
             <strong>PRIVACY NOTICE:</strong> Probabilistic AI detection match. Requires officer verification before official action.
           </div>
+          </>}
         </div>
       </div>
     </div>

@@ -10,6 +10,9 @@ export default function VehiclesPage() {
   const [plateInput, setPlateInput] = useState("GJ05CD5678");
   const [data, setData] = useState<VehicleIntelligence | null>(null);
   const [loading, setLoading] = useState(false);
+  const [fromTime, setFromTime] = useState("");
+  const [toTime, setToTime] = useState("");
+  const [deletedVehicles, setDeletedVehicles] = useState<Array<{ id: string; plate: string; deleted_at: string | null }>>([]);
 
   useEffect(() => {
     handleSearch("GJ05CD5678");
@@ -19,13 +22,17 @@ export default function VehiclesPage() {
     if (!plate.trim()) return;
     setLoading(true);
     try {
-      const result = await api.getVehicleIntelligence(plate.trim());
+      const result = await api.getVehicleIntelligence(plate.trim(), fromTime || undefined, toTime || undefined);
       setData(result);
     } catch {
       // Handled by api fallback
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadDeleted = async () => {
+    try { setDeletedVehicles(await api.getDeletedVehicles()); } catch { setDeletedVehicles([]); }
   };
 
   const routePoints = (data?.sightings || []).map((s, idx) => ({
@@ -74,8 +81,25 @@ export default function VehiclesPage() {
         </form>
       </div>
 
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        <label className="text-[11px] font-bold text-slate-600">From date/time<input type="datetime-local" value={fromTime} onChange={(e) => setFromTime(e.target.value)} className="mt-1 block rounded border border-slate-300 bg-slate-50 px-2 py-1.5 text-xs" /></label>
+        <label className="text-[11px] font-bold text-slate-600">To date/time<input type="datetime-local" value={toTime} onChange={(e) => setToTime(e.target.value)} className="mt-1 block rounded border border-slate-300 bg-slate-50 px-2 py-1.5 text-xs" /></label>
+        <button type="button" onClick={() => handleSearch(plateInput)} className="rounded-lg bg-[#0077b6] px-3 py-2 text-xs font-bold text-white">Apply time filter</button>
+        <button type="button" onClick={loadDeleted} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">Deleted records</button>
+      </div>
+
+      {deletedVehicles.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 className="text-sm font-black text-amber-900">Deleted vehicle records</h2><div className="mt-2 space-y-1 text-xs text-amber-900">{deletedVehicles.map((vehicle) => <div key={vehicle.id} className="flex justify-between"><span className="font-mono font-bold">{vehicle.plate}</span><span>{vehicle.deleted_at ? new Date(vehicle.deleted_at).toLocaleString() : "Unknown time"}</span></div>)}</div></div>}
+
       {data && (
         <div className="space-y-6">
+          <div className="rounded-2xl border border-[#bde0fe] bg-[#f4fbfe] p-5 shadow-sm">
+            <h2 className="flex items-center gap-2 text-sm font-black text-[#002147]"><ShieldCheck className="h-4 w-4 text-[#0077b6]" /> Structured Vehicle Fingerprint</h2>
+            <p className="mt-1 text-xs text-slate-600">Persistent appearance, plate, observation, and matching data for authorized search.</p>
+            <div className="mt-4 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+              {Object.entries(data.metadata_json || {}).filter(([key]) => key !== "match_scores").map(([key, value]) => <div key={key} className="rounded-lg border border-slate-200 bg-white p-3"><span className="block text-[10px] font-black uppercase text-slate-500">{key.replaceAll("_", " ")}</span><span className="mt-1 block break-words font-bold text-[#002147]">{typeof value === "object" ? JSON.stringify(value) : String(value)}</span></div>)}
+            </div>
+            {data.match_scores && <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs"><span className="font-black text-emerald-900">MULTI-FACTOR MATCH SCORES</span><div className="mt-2 flex flex-wrap gap-3">{Object.entries(data.match_scores).map(([key, value]) => <span key={key} className="font-bold text-emerald-800">{key.replaceAll("_", " ")}: {Math.round(value * 100)}%</span>)}</div></div>}
+          </div>
           {/* Top Intelligence Summary Cards */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-2xl border border-[#cbd5e1] bg-white p-5 shadow-sm">
@@ -102,6 +126,41 @@ export default function VehiclesPage() {
                 {data.watchlist_matches.length ? "FLAGGED (STOLEN)" : "NO ACTIVE FLAGS"}
               </p>
               <span className="text-xs text-rose-700 font-medium">VAHAN FIR Match Confirmed</span>
+            </div>
+          </div>
+
+          {/* Cross-Camera Vehicle Journey Flow */}
+          <div className="rounded-2xl border border-[#0077b6] bg-[#002147] p-5 text-white shadow-md">
+            <div className="flex items-center justify-between border-b border-slate-700 pb-3 mb-4">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#64dfdf]">CROSS-CAMERA JOURNEY CORRELATION</span>
+                <h2 className="text-base font-black text-white">OBSERVED VEHICLE ROUTE TIMELINE</h2>
+              </div>
+              <span className="rounded bg-[#00a896] px-3 py-1 text-xs font-black uppercase text-white shadow">
+                {data.sightings.length} OBSERVED STOPS
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3 overflow-x-auto py-2">
+              {Array.from(data.sightings).reverse().map((sighting, idx, arr) => (
+                <React.Fragment key={sighting.id || idx}>
+                  <div className="flex shrink-0 flex-col rounded-xl border border-sky-400/40 bg-sky-950/60 p-3 min-w-[170px] space-y-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-mono font-bold text-[#64dfdf]">STOP #{idx + 1}</span>
+                      <span className="text-[10px] font-black text-emerald-400">{Math.round(sighting.confidence * 100)}% Match</span>
+                    </div>
+                    <strong className="block text-xs font-bold text-white truncate">{sighting.camera_name || "Camera Node"}</strong>
+                    <span className="block text-[10px] text-slate-300 font-mono">
+                      {new Date(sighting.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                  </div>
+                  {idx < arr.length - 1 && (
+                    <div className="flex items-center text-sky-300 shrink-0 px-1">
+                      <ArrowRight className="h-5 w-5 animate-pulse" />
+                    </div>
+                  )}
+                </React.Fragment>
+              ))}
             </div>
           </div>
 

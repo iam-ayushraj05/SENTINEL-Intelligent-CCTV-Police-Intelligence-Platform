@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.models.operations import Investigation, InvestigationEvent, InvestigationNote
 from app.models.evidence import Evidence
 from app.models.audit import AuditLog
+from app.models.person import Person
 from app.schemas.operations import (
     InvestigationRead,
     InvestigationCreate,
@@ -20,6 +21,7 @@ from app.schemas.operations import (
 )
 
 router = APIRouter()
+_INVESTIGATIONS_CACHE: list[InvestigationRead] = []
 
 
 @router.get("", response_model=list[InvestigationRead])
@@ -56,7 +58,15 @@ async def list_investigations(
         inv_read = InvestigationRead.model_validate(c)
         inv_read.notes = notes
         inv_read.evidence = ev_items
+        persons = (await db.execute(select(Person).where(Person.case_id == str(c.id)))).scalars().all()
+        inv_read.person_details = [{"id": str(person.id), "person_code": person.person_code, "full_name": person.full_name, "alias": person.alias, "date_of_birth": person.date_of_birth.isoformat() if person.date_of_birth else None, "gender": person.gender, "phone_number": person.phone_number, "address": person.address, "agency_unit": person.agency_unit, "assigned_officer": person.assigned_officer, "notes": person.notes, "metadata_json": person.metadata_json or {}} for person in persons]
         output.append(inv_read)
+
+    if not output and _INVESTIGATIONS_CACHE:
+        res = _INVESTIGATIONS_CACHE
+        if status_filter:
+            res = [c for c in res if c.status and c.status.upper() == status_filter.upper()]
+        return res
 
     return output
 
@@ -71,7 +81,6 @@ async def create_investigation(payload: InvestigationCreate, db: AsyncSession = 
         description=payload.description,
         status="OPEN",
         assigned_officer_name=payload.assigned_officer_name or "Sub-Inspector Rajesh Patel",
-        created_by="Operator",
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
@@ -89,7 +98,7 @@ async def create_investigation(payload: InvestigationCreate, db: AsyncSession = 
     await db.commit()
     await db.refresh(inv)
 
-    return InvestigationRead(
+    read_obj = InvestigationRead(
         id=inv.id,
         case_number=inv.case_number,
         title=inv.title,
@@ -103,6 +112,8 @@ async def create_investigation(payload: InvestigationCreate, db: AsyncSession = 
         events=[],
         evidence=[],
     )
+    _INVESTIGATIONS_CACHE.append(read_obj)
+    return read_obj
 
 
 @router.get("/{investigation_id}", response_model=InvestigationRead)
@@ -138,6 +149,8 @@ async def get_investigation(investigation_id: uuid.UUID, db: AsyncSession = Depe
     inv_read = InvestigationRead.model_validate(inv)
     inv_read.notes = notes
     inv_read.evidence = ev_items
+    persons = (await db.execute(select(Person).where(Person.case_id == str(inv.id)))).scalars().all()
+    inv_read.person_details = [{"id": str(person.id), "person_code": person.person_code, "full_name": person.full_name, "alias": person.alias, "date_of_birth": person.date_of_birth.isoformat() if person.date_of_birth else None, "gender": person.gender, "phone_number": person.phone_number, "address": person.address, "agency_unit": person.agency_unit, "assigned_officer": person.assigned_officer, "notes": person.notes, "metadata_json": person.metadata_json or {}} for person in persons]
     return inv_read
 
 

@@ -109,8 +109,8 @@ export default function AbhayGujaratLightPortalPage() {
                   HOME DEPARTMENT
                 </span>
               </div>
-              <h1 className="text-2xl font-black text-white tracking-tight">SENTINEL (ABHAY GUJARAT)</h1>
-              <p className="text-[11px] text-slate-300">Command & Control Centre for CCTV Surveillance & Emergency Response</p>
+              <h1 className="text-2xl font-black text-white tracking-tight">SENTINEL</h1>
+              <p className="text-[11px] text-slate-300">Unified CCTV Intelligence & Smart Policing Command Centre</p>
             </div>
           </div>
 
@@ -197,14 +197,17 @@ export default function AbhayGujaratLightPortalPage() {
 
               {/* Text Info */}
               <div className="max-w-xl space-y-1.5">
+                <div className="mb-2 inline-flex items-center rounded-full border border-[#00a896] bg-[#0b5f76]/40 px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-[#d9f9f4]">
+                  SYNTHETIC DEMO DATA
+                </div>
                 <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight">
-                  {CAROUSEL_SLIDES[activeSlide].title}
+                  SENTINEL
                 </h2>
                 <p className="text-xs font-bold text-sky-200 uppercase tracking-wider">
-                  {CAROUSEL_SLIDES[activeSlide].subtitle}
+                  Unified CCTV Intelligence & Smart Policing Platform
                 </p>
                 <p className="text-xs text-slate-300 font-medium">
-                  {CAROUSEL_SLIDES[activeSlide].tagline}
+                  From Fragmented Cameras to Unified Intelligence.
                 </p>
               </div>
             </div>

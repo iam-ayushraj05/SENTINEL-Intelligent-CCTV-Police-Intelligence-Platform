@@ -1,5 +1,6 @@
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, Query
 try:
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,16 +19,25 @@ gov_adapter = MockGovernmentDataAdapter()
 
 
 @router.get("/{plate}/sightings", response_model=VehicleIntelligenceResponse)
-async def get_vehicle_sightings(plate: str, db: AsyncSession = Depends(get_db)):
+async def get_vehicle_sightings(plate: str, from_time: str | None = Query(None), to_time: str | None = Query(None), db: AsyncSession = Depends(get_db)):
     normalized = plate.replace("-", "").replace(" ", "").upper()
     
     # Query Sightings
     stmt = (
-        select(VehicleSighting, Camera.name.label("camera_name"))
+        select(
+            VehicleSighting,
+            Camera.name.label("camera_name"),
+            Camera.latitude.label("camera_lat"),
+            Camera.longitude.label("camera_lng"),
+        )
         .join(Camera, VehicleSighting.camera_id == Camera.id)
-        .where(getattr(VehicleSighting, "normalized_plate", VehicleSighting.plate_text) == normalized)
+        .where(VehicleSighting.normalized_plate == normalized, VehicleSighting.is_deleted == False)
         .order_by(VehicleSighting.timestamp.desc())
     )
+    if from_time:
+        stmt = stmt.where(VehicleSighting.timestamp >= datetime.fromisoformat(from_time))
+    if to_time:
+        stmt = stmt.where(VehicleSighting.timestamp <= datetime.fromisoformat(to_time))
     result = await db.execute(stmt)
     rows = result.all() if hasattr(result, "all") else []
 
@@ -35,17 +45,20 @@ async def get_vehicle_sightings(plate: str, db: AsyncSession = Depends(get_db)):
     for row in rows:
         sighting = row[0] if isinstance(row, (tuple, list)) else row
         cam_name = row[1] if isinstance(row, (tuple, list)) and len(row) > 1 else "Camera Node"
+        cam_lat = row[2] if isinstance(row, (tuple, list)) and len(row) > 2 and row[2] is not None else 22.2587
+        cam_lng = row[3] if isinstance(row, (tuple, list)) and len(row) > 3 and row[3] is not None else 71.1924
         s_read = SightingRead(
             id=getattr(sighting, "id", None),
             camera_id=getattr(sighting, "camera_id", None),
             camera_name=cam_name,
             timestamp=getattr(sighting, "timestamp", datetime.utcnow()),
             confidence=getattr(sighting, "confidence", 0.95),
-            latitude=getattr(sighting, "latitude", 23.0225),
-            longitude=getattr(sighting, "longitude", 72.5714),
+            latitude=cam_lat,
+            longitude=cam_lng,
             vehicle_type=getattr(sighting, "vehicle_type", "Automobile"),
             color=getattr(sighting, "color", "Silver"),
             evidence_url=getattr(sighting, "crop_image_url", None),
+            metadata_json=getattr(sighting, "metadata_json", None) or {},
         )
         sightings.append(s_read)
 
@@ -87,12 +100,39 @@ async def get_vehicle_sightings(plate: str, db: AsyncSession = Depends(get_db)):
         sightings=sightings,
         watchlist_matches=wl_matches,
         registered_owner=gov_record,
+        metadata_json=getattr(v_entity, "metadata_json", None) or {},
+        match_scores=(getattr(v_entity, "metadata_json", None) or {}).get("match_scores"),
+        deleted=bool(getattr(v_entity, "is_deleted", False)),
     )
+
+
+@router.get("/deleted", response_model=list[dict])
+async def list_deleted_vehicles(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Vehicle).where(Vehicle.is_deleted == True).order_by(Vehicle.deleted_at.desc()))
+    return [{"id": str(item.id), "plate": item.plate_number, "normalized_plate": item.normalized_plate, "deleted_at": item.deleted_at.isoformat() if item.deleted_at else None, "metadata_json": item.metadata_json or {}} for item in result.scalars().all()]
+
+
+@router.delete("/{plate}")
+async def soft_delete_vehicle(plate: str, db: AsyncSession = Depends(get_db)):
+    normalized = plate.replace("-", "").replace(" ", "").upper()
+    result = await db.execute(select(Vehicle).where(Vehicle.normalized_plate == normalized))
+    vehicle = result.scalars().first()
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle record not found")
+    now = datetime.utcnow()
+    vehicle.is_deleted = True
+    vehicle.deleted_at = now
+    sightings = (await db.execute(select(VehicleSighting).where(VehicleSighting.vehicle_id == vehicle.id))).scalars().all()
+    for sighting in sightings:
+        sighting.is_deleted = True
+        sighting.deleted_at = now
+    await db.commit()
+    return {"status": "deleted", "plate": vehicle.plate_number, "deleted_at": now.isoformat()}
 
 
 @router.get("/{plate}/timeline")
 async def get_vehicle_timeline(plate: str, db: AsyncSession = Depends(get_db)):
-    res = await get_vehicle_sightings(plate, db)
+    res = await get_vehicle_sightings(plate, db=db)
     return {
         "plate": res.plate,
         "timeline": [
@@ -111,7 +151,7 @@ async def get_vehicle_timeline(plate: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/{plate}/route", response_model=VehicleRouteResponse)
 async def get_vehicle_route(plate: str, db: AsyncSession = Depends(get_db)):
-    res = await get_vehicle_sightings(plate, db)
+    res = await get_vehicle_sightings(plate, db=db)
     sightings = list(reversed(res.sightings))
 
     segments = []

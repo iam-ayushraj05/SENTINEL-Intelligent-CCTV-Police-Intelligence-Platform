@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 try:
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,7 +6,8 @@ except ImportError:
     from app.core.database import select, AsyncSession
 
 from app.core.database import get_db
-from app.core.security import verify_password, create_access_token
+from app.core.security import verify_password, create_access_token, get_current_user
+from app.core.config import settings
 from app.models.user import User
 from app.models.audit import AuditLog
 from app.schemas.auth import LoginRequest, TokenResponse, UserRead, UserCreate
@@ -17,32 +18,13 @@ router = APIRouter()
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(req: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
     stmt = select(User).where(User.username == req.username)
     result = await db.execute(stmt)
     user = result.scalars().first()
 
-    if not user or not verify_password(req.password, user.hashed_password):
-        # Demo fallback for hackathon review convenience
-        if req.username in ["admin", "operator01", "operator"] and req.password in ["admin123", "operator123", "password", "admin"]:
-            # Auto-create admin user if not present
-            if not user:
-                user = User(
-                    id=uuid.uuid4(),
-                    username=req.username,
-                    email=f"{req.username}@sentinel.police.gov.in",
-                    full_name="Sentinel Command Officer",
-                    hashed_password=req.password,
-                    role="ADMIN" if req.username == "admin" else "OPERATOR",
-                )
-                db.add(user)
-                await db.commit()
-                await db.refresh(user)
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid username or password",
-            )
+    if not user or not user.is_active or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
 
     token = create_access_token(subject=user.id, role=user.role)
     user.last_login = datetime.utcnow()
@@ -59,6 +41,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     db.add(audit)
     await db.commit()
 
+    response.set_cookie("sentinel_access_token", token, httponly=True, secure=settings.environment.lower() == "production", samesite="lax", max_age=settings.access_token_expire_minutes * 60)
     return TokenResponse(
         access_token=token,
         token_type="bearer",
@@ -67,22 +50,14 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/me", response_model=UserRead)
-async def get_current_user(username: str = "admin", db: AsyncSession = Depends(get_db)):
-    stmt = select(User).where(User.username == username)
-    result = await db.execute(stmt)
-    user = result.scalars().first()
-    if not user:
-        # Demo default
-        return UserRead(
-            id=uuid.uuid4(),
-            username="admin",
-            email="admin@sentinel.police.gov.in",
-            full_name="Command Inspector General",
-            role="ADMIN",
-            badge_number="GJ-POL-001",
-            is_active=True,
-        )
+async def current_user(user: User = Depends(get_current_user)):
     return UserRead.model_validate(user)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(response: Response):
+    response.delete_cookie("sentinel_access_token")
+    return None
 
 
 @router.get("/users", response_model=list[UserRead])
