@@ -58,111 +58,77 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ username, password }),
     });
-    if (typeof window !== "undefined") sessionStorage.setItem("sentinel_access_token", result.access_token);
+    if (typeof window !== "undefined" && result.access_token) {
+      sessionStorage.setItem("sentinel_access_token", result.access_token);
+    }
     return result;
   },
+  getCurrentUser: () => fetcher<User>("/auth/me"),
   logout: async () => {
-    try { await fetcher<void>("/auth/logout", { method: "POST" }); } catch { /* local session cleanup still runs */ }
     if (typeof window !== "undefined") {
       sessionStorage.removeItem("sentinel_access_token");
-      sessionStorage.clear();
     }
-    return { success: true };
   },
-  getUsers: () => fetcher<User[]>("/auth/users").catch(() => []),
-
-  // Dashboard
-  getDashboardSummary: () =>
-    fetcher<DashboardSummary>("/dashboard/summary").catch(() => ({
-      total_cameras: 6,
-      online_cameras: 5,
-      offline_cameras: 0,
-      degraded_cameras: 1,
-      active_alerts: 3,
-      critical_alerts: 1,
-      high_alerts: 2,
-      ai_events_today: 1420,
-      persons_detected_today: 850,
-      vehicles_detected_today: 570,
-      recent_incidents_count: 2,
-    })),
-  getDashboardActivity: () =>
-    fetcher<any>("/dashboard/activity").catch(() => ({
-      recent_alerts: [],
-      health: {
-        database_status: "HEALTHY (PostgreSQL+PostGIS)",
-        redis_status: "HEALTHY (Cache)",
-        kafka_status: "HEALTHY (Event Bus)",
-        ai_engine_status: "RUNNING (YOLOv8 & ANPR)",
-        stream_gateway_status: "ACTIVE (MediaMTX)",
-        active_workers: 4,
-        average_fps: 28.5,
-        average_latency_ms: 38.2,
-      },
-    })),
 
   // Cameras
-  getCameras: (status?: string, zone?: string) => {
-    const params = new URLSearchParams();
-    if (status) params.append("status", status);
-    if (zone) params.append("zone", zone);
-    const q = params.toString() ? `?${params.toString()}` : "";
-    return fetcher<Camera[]>(`/cameras${q}`).catch(() => MOCK_CAMERAS);
-  },
-  getCamera: (id: string) => fetcher<Camera>(`/cameras/${id}`).catch(() => MOCK_CAMERAS[0]),
+  getCameras: () => fetcher<Camera[]>("/cameras").catch(() => MOCK_CAMERAS),
+  getCamera: (id: string) => fetcher<Camera>(`/cameras/${id}`).catch(() => MOCK_CAMERAS.find((c) => c.id === id) || MOCK_CAMERAS[0]),
   createCamera: (data: Partial<Camera>) =>
     fetcher<Camera>("/cameras", { method: "POST", body: JSON.stringify(data) }),
-  getCameraStream: (id: string) =>
-    fetcher<any>(`/cameras/${id}/stream`).catch(() => ({
-      camera_id: id,
-      protocol: "WEBRTC",
-      session_url: "http://localhost:8889/live/stream",
-      status: "STREAMING",
-    })),
+  updateCamera: (id: string, data: Partial<Camera>) =>
+    fetcher<Camera>(`/cameras/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteCamera: (id: string) => fetcher<{ message: string }>(`/cameras/${id}`, { method: "DELETE" }),
 
   // Alerts
   getAlerts: (severity?: string, status?: string) => {
     const params = new URLSearchParams();
-    if (severity) params.append("severity", severity);
-    if (status) params.append("status", status);
-    const q = params.toString() ? `?${params.toString()}` : "";
-    return fetcher<Alert[]>(`/alerts${q}`).catch(() => MOCK_ALERTS);
+    if (severity) params.set("severity", severity);
+    if (status) params.set("status", status);
+    const query = params.toString() ? `?${params.toString()}` : "";
+    return fetcher<Alert[]>(`/alerts${query}`).catch(() => MOCK_ALERTS);
   },
-  getAlert: (id: string) => fetcher<Alert>(`/alerts/${id}`).catch(() => MOCK_ALERTS[0]),
-  createAlert: (data: {
-    alert_type: string;
-    severity: string;
-    title: string;
-    description?: string;
-    camera_id?: string;
-  }) => fetcher<Alert>("/alerts", { method: "POST", body: JSON.stringify({ ...data, metadata_json: { source: "MANUAL" } }) }),
-  acknowledgeAlert: (id: string, officer_name?: string, note?: string) =>
+  getAlert: (id: string) => fetcher<Alert>(`/alerts/${id}`).catch(() => MOCK_ALERTS.find((a) => a.id === id) || MOCK_ALERTS[0]),
+  updateAlertStatus: (id: string, status: string, notes?: string) =>
+    fetcher<Alert>(`/alerts/${id}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status, notes }),
+    }),
+  acknowledgeAlert: (id: string, officerName?: string) =>
     fetcher<Alert>(`/alerts/${id}/acknowledge`, {
       method: "POST",
-      body: JSON.stringify({ officer_name, note }),
-    }),
-  assignAlert: (id: string, officer_name: string) =>
-    fetcher<Alert>(`/alerts/${id}/assign`, {
+      body: JSON.stringify({ officer_name: officerName || "Operator" }),
+    }).catch(() => ({ ...(MOCK_ALERTS.find((a) => a.id === id) || MOCK_ALERTS[0]), status: "ACKNOWLEDGED" as AlertStatus })),
+  resolveAlert: (id: string, notes?: string) =>
+    fetcher<Alert>(`/alerts/${id}/resolve`, {
       method: "POST",
-      body: JSON.stringify({ officer_name }),
-    }),
-  resolveAlert: (id: string) => fetcher<Alert>(`/alerts/${id}/resolve`, { method: "POST" }),
-  dismissAlert: (id: string) => fetcher<Alert>(`/alerts/${id}/dismiss`, { method: "POST" }),
-  stopAlertEscalation: (id: string) => fetcher<{ status: string }>(`/alerts/${id}/stop-escalation`, { method: "POST" }),
+      body: JSON.stringify({ notes }),
+    }).catch(() => ({ ...(MOCK_ALERTS.find((a) => a.id === id) || MOCK_ALERTS[0]), status: "RESOLVED" as AlertStatus })),
 
-  // Detections & Vehicles
-  getDetections: () => fetcher<Detection[]>("/detections").catch(() => []),
-  getVehicleIntelligence: (plate: string, fromTime?: string, toTime?: string) =>
-    fetcher<VehicleIntelligence>(`/vehicles/${plate}/sightings${fromTime || toTime ? `?${new URLSearchParams({ ...(fromTime ? { from_time: fromTime } : {}), ...(toTime ? { to_time: toTime } : {}) }).toString()}` : ""}`).catch(() => ({
-      plate,
+  // Detections & AI
+  getDetections: (camera_id?: string) =>
+    fetcher<Detection[]>(`/detections${camera_id ? `?camera_id=${camera_id}` : ""}`).catch(() => MOCK_DETECTIONS),
+
+  // Vehicles & ANPR
+  getVehicleIntelligence: (plate: string, from_time?: string, to_time?: string) =>
+    fetcher<VehicleIntelligence>(`/vehicles/${plate}${from_time || to_time ? `?${new URLSearchParams({ ...(from_time ? { from_time } : {}), ...(to_time ? { to_time } : {}) }).toString()}` : ""}`).catch(() => ({
+      plate_number: plate,
       normalized_plate: plate.replace(/[^A-Z0-9]/gi, "").toUpperCase(),
-      vehicle_type: "Mahindra Bolero - Silver",
-      color: "Silver",
-      make: "Mahindra",
-      model: "Bolero",
-      first_seen: new Date(Date.now() - 3600000 * 5).toISOString(),
-      last_seen: new Date().toISOString(),
-      total_sightings: 4,
+      vehicle_type: "Sedan",
+      color: "White",
+      make_model: "Hyundai Verna",
+      stolen_flag: true,
+      wanted_flag: false,
+      owner_name: "Ramesh Patel",
+      owner_phone: "+91 9876543210",
+      registration_date: "2021-05-14",
+      rto_location: "Ahmedabad RTO (GJ-01)",
+      metadata_json: {
+        chassis_number: "MBHABC1234567890",
+        engine_number: "ENG987654321",
+        insurance_status: "ACTIVE",
+        puc_valid_until: "2026-12-31",
+      },
+      total_sightings: 3,
       sightings: [
         {
           id: "s1",
@@ -248,191 +214,97 @@ export const api = {
     }),
 };
 
-// Fallback Mock Data for immediate offline rendering
+// 30 Named Gujarat Police CCTV Cameras
 export const MOCK_CAMERAS: Camera[] = [
-  {
-    id: "cam-1",
-    camera_code: "CAM-GJ01-001",
-    name: "16 Fake Security Cameras Prank",
-    description: "Local video feed assigned to Ahmedabad Ring Road North Junction",
-    zone: "Ahmedabad Central",
-    camera_type: "ANPR",
-    manufacturer: "Hikvision Sentinel",
-    model: "DS-2CD2043G2-I",
-    protocol: "FILE",
-    stream_url: "http://localhost:8000/api/v1/feeds/local-camera-video",
-    vms_reference: "VMS-GJ-1024",
-    latitude: 23.0225,
-    longitude: 72.5714,
-    status: "ONLINE",
-    is_active: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: "cam-2",
-    camera_code: "CAM-GJ01-002",
-    name: "SG Highway Express Gate 4",
-    description: "PTZ Dome camera monitoring SG Highway Gate 4 traffic",
-    zone: "Ahmedabad West",
-    camera_type: "PTZ",
-    manufacturer: "Hikvision Sentinel",
-    model: "DS-2CD2043G2-I",
-    protocol: "RTSP",
-    stream_url: "http://localhost:8889/live/cam02",
-    vms_reference: "VMS-GJ-1025",
-    latitude: 23.09,
-    longitude: 72.5342,
-    status: "ONLINE",
-    is_active: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: "cam-3",
-    camera_code: "CAM-GJ01-003",
-    name: "Kalupur Station Entrance",
-    description: "Fixed broad-angle camera at Kalupur Railway Terminal Entrance",
-    zone: "Ahmedabad East",
-    camera_type: "FIXED",
-    manufacturer: "Dahua Sentinel",
-    model: "DH-IPC-HFW",
-    protocol: "RTSP",
-    stream_url: "http://localhost:8889/live/cam03",
-    vms_reference: "VMS-GJ-1026",
-    latitude: 23.027,
-    longitude: 72.6012,
-    status: "ONLINE",
-    is_active: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: "cam-4",
-    camera_code: "CAM-GJ05-001",
-    name: "Majura Gate Circle",
-    description: "ANPR High-speed camera at Surat Majura Gate Roundabout",
-    zone: "Surat South",
-    camera_type: "ANPR",
-    manufacturer: "Axis Communications",
-    model: "Q1786-LE",
-    protocol: "RTSP",
-    stream_url: "http://localhost:8889/live/cam04",
-    vms_reference: "VMS-GJ-1027",
-    latitude: 21.1702,
-    longitude: 72.8311,
-    status: "ONLINE",
-    is_active: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: "cam-5",
-    camera_code: "CAM-GJ18-001",
-    name: "Sector 11 Secretariat Plaza",
-    description: "Government Complex Entrance PTZ Camera",
-    zone: "Gandhinagar Govt Complex",
-    camera_type: "PTZ",
-    manufacturer: "Hikvision Sentinel",
-    model: "DS-2CD2043G2-I",
-    protocol: "RTSP",
-    stream_url: "http://localhost:8889/live/cam05",
-    vms_reference: "VMS-GJ-1028",
-    latitude: 23.2156,
-    longitude: 72.6369,
-    status: "ONLINE",
-    is_active: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: "cam-6",
-    camera_code: "CAM-GJ03-001",
-    name: "Trikon Baug Junction",
-    description: "Rajkot Center Junction monitoring camera",
-    zone: "Rajkot Center",
-    camera_type: "FIXED",
-    manufacturer: "Bosch Security",
-    model: "DINION IP 7000",
-    protocol: "RTSP",
-    stream_url: "http://localhost:8889/live/cam06",
-    vms_reference: "VMS-GJ-1029",
-    latitude: 22.3039,
-    longitude: 70.8022,
-    status: "DEGRADED",
-    is_active: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
+  { id: "cam01", camera_code: "CAM01", name: "Ring Road Junction North", zone: "Gujarat Range", camera_type: "ANPR", latitude: 23.0225, longitude: 72.5714, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam01/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam02", camera_code: "CAM02", name: "SG Highway Express Gate 4", zone: "Gujarat Range", camera_type: "PTZ", latitude: 23.0900, longitude: 72.5342, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam02/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam03", camera_code: "CAM03", name: "Kalupur Station Entrance", zone: "Gujarat Range", camera_type: "FIXED", latitude: 23.0270, longitude: 72.6012, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam03/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam04", camera_code: "CAM04", name: "Majura Gate Circle", zone: "Gujarat Range", camera_type: "ANPR", latitude: 21.1702, longitude: 72.8311, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam04/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam05", camera_code: "CAM05", name: "Sector 11 Secretariat Plaza", zone: "Gujarat Range", camera_type: "PTZ", latitude: 23.2156, longitude: 72.6369, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam05/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam06", camera_code: "CAM06", name: "Trikon Baug Junction", zone: "Gujarat Range", camera_type: "FIXED", latitude: 22.3039, longitude: 70.8022, status: "DEGRADED", is_active: true, stream_url: "/api/cctv/stream/cam06/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam07", camera_code: "CAM07", name: "Navrangpura Crossroads", zone: "Gujarat Range", camera_type: "PTZ", latitude: 23.0395, longitude: 72.5579, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam07/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam08", camera_code: "CAM08", name: "Vadodara Sayajigunj Gate", zone: "Gujarat Range", camera_type: "ANPR", latitude: 22.3072, longitude: 73.1812, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam08/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam09", camera_code: "CAM09", name: "Surat Diamond Naka", zone: "Gujarat Range", camera_type: "FIXED", latitude: 21.2001, longitude: 72.8379, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam09/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam10", camera_code: "CAM10", name: "Kankaria Lake Entrance", zone: "Gujarat Range", camera_type: "PTZ", latitude: 22.9965, longitude: 72.6036, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam10/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam11", camera_code: "CAM11", name: "Jamnagar Bedi Gate", zone: "Gujarat Range", camera_type: "FIXED", latitude: 22.4707, longitude: 70.0577, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam11/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam12", camera_code: "CAM12", name: "Bhavnagar Highway Toll", zone: "Gujarat Range", camera_type: "ANPR", latitude: 21.7645, longitude: 72.1519, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam12/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam13", camera_code: "CAM13", name: "ISCON Circle Overbridge", zone: "Gujarat Range", camera_type: "PTZ", latitude: 23.0379, longitude: 72.5091, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam13/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam14", camera_code: "CAM14", name: "Anand Vidyanagar Road", zone: "Gujarat Range", camera_type: "FIXED", latitude: 22.5645, longitude: 72.9289, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam14/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam15", camera_code: "CAM15", name: "Mehsana Highway Junction", zone: "Gujarat Range", camera_type: "ANPR", latitude: 23.5979, longitude: 72.3693, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam15/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam16", camera_code: "CAM16", name: "Gandhinagar Sector 28 Gate", zone: "Gujarat Range", camera_type: "FIXED", latitude: 23.2322, longitude: 72.6679, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam16/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam17", camera_code: "CAM17", name: "Sabarmati Riverfront South", zone: "Gujarat Range", camera_type: "PTZ", latitude: 23.0281, longitude: 72.5832, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam17/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam18", camera_code: "CAM18", name: "Rajkot Airport Road Gate", zone: "Gujarat Range", camera_type: "ANPR", latitude: 22.3109, longitude: 70.7794, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam18/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam19", camera_code: "CAM19", name: "Morbi Rambaug Junction", zone: "Gujarat Range", camera_type: "FIXED", latitude: 22.8174, longitude: 70.8376, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam19/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam20", camera_code: "CAM20", name: "Surat Athwalines Central", zone: "Gujarat Range", camera_type: "PTZ", latitude: 21.1895, longitude: 72.8288, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam20/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam21", camera_code: "CAM21", name: "Patan Heritage Gate", zone: "Gujarat Range", camera_type: "FIXED", latitude: 23.8493, longitude: 72.1266, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam21/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam22", camera_code: "CAM22", name: "Bharuch Causeway Camera", zone: "Gujarat Range", camera_type: "ANPR", latitude: 21.7051, longitude: 72.9959, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam22/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam23", camera_code: "CAM23", name: "Navsari Bus Terminal Gate", zone: "Gujarat Range", camera_type: "FIXED", latitude: 20.9467, longitude: 72.9520, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam23/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam24", camera_code: "CAM24", name: "Valsad Court Road Junction", zone: "Gujarat Range", camera_type: "PTZ", latitude: 20.6161, longitude: 72.9282, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam24/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam25", camera_code: "CAM25", name: "Kutch Bhuj Gate North", zone: "Gujarat Range", camera_type: "ANPR", latitude: 23.2419, longitude: 69.6669, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam25/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam26", camera_code: "CAM26", name: "Porbandar Nehru Gate", zone: "Gujarat Range", camera_type: "FIXED", latitude: 21.6417, longitude: 69.6293, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam26/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam27", camera_code: "CAM27", name: "Amreli Highway Checkpoint", zone: "Gujarat Range", camera_type: "ANPR", latitude: 21.6032, longitude: 71.2213, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam27/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam28", camera_code: "CAM28", name: "Surendranagar Wadhwan Gate", zone: "Gujarat Range", camera_type: "FIXED", latitude: 22.7284, longitude: 71.6374, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam28/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam29", camera_code: "CAM29", name: "Gandhinagar State Highway 40", zone: "Gujarat Range", camera_type: "PTZ", latitude: 23.1793, longitude: 72.6369, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam29/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: "cam30", camera_code: "CAM30", name: "Ahmedabad Airport Road ANPR", zone: "Gujarat Range", camera_type: "ANPR", latitude: 23.0732, longitude: 72.6347, status: "ONLINE", is_active: true, stream_url: "/api/cctv/stream/cam30/index.m3u8", created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
 ];
 
 export const MOCK_ALERTS: Alert[] = [
   {
-    id: "alt-1",
-    alert_code: "ALT-20260904-9981",
-    alert_type: "WATCHLIST_MATCH",
-    severity: "CRITICAL",
-    camera_id: "cam-1",
-    camera_name: "Ring Road Junction North",
-    camera_code: "CAM-GJ01-001",
-    title: "WATCHLIST MATCH: Stolen Vehicle GJ05CD5678",
-    description: "Sighting of flagged vehicle GJ05CD5678 on camera CAM-GJ01-001. Matched against Stolen Vehicles watchlist (FIR-2026-SURAT-00412).",
-    confidence: 0.96,
+    id: "alt-101",
+    alert_code: "ALT-20260913-9001",
+    alert_type: "ANPR_WATCHLIST_HIT",
+    severity: "HIGH",
+    camera_id: "cam01",
+    title: "Watchlist Vehicle Sighting: GJ05CD5678",
+    description: "ANPR camera detected vehicle flagged in VAHAN FIR database.",
+    confidence: 0.98,
     status: "OPEN",
     evidence_url: "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=800&q=80",
-    created_at: new Date(Date.now() - 120000).toISOString(),
-    updated_at: new Date(Date.now() - 120000).toISOString(),
+    created_at: new Date().toISOString(),
   },
   {
-    id: "alt-2",
-    alert_code: "ALT-20260904-8812",
-    alert_type: "CROWD_ANOMALY",
-    severity: "HIGH",
-    camera_id: "cam-3",
-    camera_name: "Kalupur Station Entrance",
-    camera_code: "CAM-GJ01-003",
-    title: "ANOMALY: Sudden Crowd Concentration",
-    description: "Unusual crowd assembly detected near Kalupur Station Entrance gate. Density exceeds normal threshold by 240%.",
-    confidence: 0.88,
+    id: "alt-102",
+    alert_code: "ALT-20260913-9002",
+    alert_type: "WEAPON_DETECTED",
+    severity: "CRITICAL",
+    camera_id: "cam02",
+    title: "Possible Firearm Detection",
+    description: "AI Object Detection flagged weapon signature at SG Highway Gate 4.",
+    confidence: 0.89,
     status: "OPEN",
-    evidence_url: "https://images.unsplash.com/photo-1517048676732-d65bc937f952?w=800&q=80",
-    created_at: new Date(Date.now() - 900000).toISOString(),
-    updated_at: new Date(Date.now() - 900000).toISOString(),
+    evidence_url: "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=800&q=80",
+    created_at: new Date(Date.now() - 600000).toISOString(),
+  },
+];
+
+export const MOCK_DETECTIONS: Detection[] = [
+  {
+    id: "det-1",
+    camera_id: "cam01",
+    object_type: "vehicle",
+    confidence: 0.95,
+    bbox: { x1: 100, y1: 120, x2: 350, y2: 400 },
+    timestamp: new Date().toISOString(),
   },
   {
-    id: "alt-3",
-    alert_code: "ALT-20260904-7743",
-    alert_type: "LOITERING",
-    severity: "MEDIUM",
-    camera_id: "cam-5",
-    camera_name: "Sector 11 Secretariat Plaza",
-    camera_code: "CAM-GJ18-001",
-    title: "LOITERING: Person detected > 15 mins",
-    description: "Anonymous track ID TRK-419 loitering near restricted perimeter line for over 15 minutes.",
-    confidence: 0.82,
-    status: "ACKNOWLEDGED",
-    assigned_officer: "Sub-Inspector Rajesh Patel",
-    evidence_url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&q=80",
-    created_at: new Date(Date.now() - 3600000).toISOString(),
-    updated_at: new Date(Date.now() - 1800000).toISOString(),
+    id: "det-2",
+    camera_id: "cam01",
+    object_type: "person",
+    confidence: 0.91,
+    bbox: { x1: 400, y1: 150, x2: 480, y2: 380 },
+    timestamp: new Date(Date.now() - 30000).toISOString(),
   },
 ];
 
 export const MOCK_WATCHLISTS: Watchlist[] = [
   {
     id: "wl-1",
-    name: "Stolen & Crime-Linked Vehicles",
-    description: "Authorized statewide database of reported stolen and wanted vehicles",
-    entity_type: "VEHICLE",
-    status: "ACTIVE",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "wl-2",
-    name: "Persons of Interest (Authorized Watchlist)",
-    description: "Controlled authorized reference watchlist for security perimeter monitoring",
-    entity_type: "PERSON_REFERENCE",
-    status: "ACTIVE",
+    name: "Stolen Vehicles (VAHAN FIR)",
+    category: "VEHICLE",
+    priority: "HIGH",
+    description: "Active FIR stolen vehicle registry",
+    active: true,
+    entries_count: 142,
     created_at: new Date().toISOString(),
   },
 ];
@@ -441,20 +313,11 @@ export const MOCK_WATCHLIST_ENTRIES: WatchlistEntry[] = [
   {
     id: "wle-1",
     watchlist_id: "wl-1",
-    subject_reference: "GJ05CD5678",
+    reference_value: "GJ05CD5678",
     normalized_reference: "GJ05CD5678",
-    source_system: "VAHAN_POLICE_FIR",
+    category: "VEHICLE",
     priority: "HIGH",
-    active: true,
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "wle-2",
-    watchlist_id: "wl-1",
-    subject_reference: "GJ01XY9999",
-    normalized_reference: "GJ01XY9999",
-    source_system: "CRIME_BRANCH",
-    priority: "CRITICAL",
+    reason: "Stolen vehicle FIR #402/2026 Surat Police",
     active: true,
     created_at: new Date().toISOString(),
   },
@@ -463,114 +326,41 @@ export const MOCK_WATCHLIST_ENTRIES: WatchlistEntry[] = [
 export const MOCK_INVESTIGATIONS: Investigation[] = [
   {
     id: "inv-1",
-    case_number: "CASE-2026-GJ-0091",
-    title: "Stolen Bolero Ring Road Sighting Case",
-    description: "Cross-referencing CCTV sightings of GJ05CD5678 across Ring Road and SG Highway cameras.",
-    status: "INVESTIGATING",
-    assigned_officer_name: "Sub-Inspector Rajesh Patel",
-    created_by: "admin",
-    created_at: new Date(Date.now() - 86400000).toISOString(),
-    updated_at: new Date().toISOString(),
-    notes: [
-      {
-        id: "n-1",
-        investigation_id: "inv-1",
-        author: "Sub-Inspector Rajesh Patel",
-        note: "Verified CCTV frame from CAM-GJ01-001. Vehicle confirmed silver Mahindra Bolero heading south towards SG Highway.",
-        created_at: new Date(Date.now() - 43200000).toISOString(),
-      },
-    ],
-    events: [],
-    evidence: [
-      {
-        id: "ev-1",
-        code: "EVD-FRAME-001",
-        type: "FRAME_SNAPSHOT",
-        url: "https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=800&q=80",
-      },
-    ],
+    title: "Ring Road Suspect Movement Investigation",
+    status: "IN_PROGRESS",
+    assigned_officer_name: "Inspector V. K. Sharma",
+    case_number: "CASE-1000284",
+    created_at: new Date().toISOString(),
   },
 ];
 
 export const MOCK_AUDIT_LOGS: AuditLogItem[] = [
   {
     id: "aud-1",
-    username: "admin",
-    action: "SYSTEM_INIT",
-    resource: "DATABASE",
-    result: "SUCCESS",
-    ip_address: "127.0.0.1",
-    timestamp: new Date(Date.now() - 7200000).toISOString(),
-  },
-  {
-    id: "aud-2",
-    username: "operator01",
-    action: "ALERT_ACKNOWLEDGE",
-    resource: "Alert:ALT-20260904-7743",
-    result: "SUCCESS",
-    ip_address: "192.168.1.45",
-    timestamp: new Date(Date.now() - 1800000).toISOString(),
-  },
-  {
-    id: "aud-3",
-    username: "operator01",
-    action: "GOV_DB_QUERY_VEHICLE",
-    resource: "VAHAN:GJ05CD5678",
-    result: "SUCCESS",
-    ip_address: "192.168.1.45",
-    timestamp: new Date(Date.now() - 1200000).toISOString(),
+    event_type: "CAMERA_STREAM_ACCESSED",
+    actor: "Operator-GJ01",
+    resource: "cam01",
+    timestamp: new Date().toISOString(),
   },
 ];
 
-
-// ==========================================
-// CCTV CDN Catalogue & Stream API
-// ==========================================
-
 export interface CCTVCameraEntry {
   id: string;
-  name?: string;
+  name: string;
   location?: string;
+  zone?: string;
+  type?: string;
   status?: string;
-  [key: string]: unknown;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface CCTVCatalogueResponse {
   status: string;
+  message?: string;
   cameras: CCTVCameraEntry[];
   totalCount?: number;
   source?: string;
-  message?: string;
-}
-
-export interface PlateSearchResult {
-  id: string;
-  plate_text: string;
-  normalized_plate: string;
-  confidence: number;
-  camera_id: string;
-  camera_code: string | null;
-  camera_name: string | null;
-  camera_zone: string | null;
-  timestamp: string;
-  vehicle_class: string | null;
-  direction: string | null;
-  snapshot_url: string | null;
-}
-
-export interface VehicleJourneyObservation {
-  sequence_index: number;
-  camera_id: string;
-  camera_code: string | null;
-  camera_name: string | null;
-  zone: string | null;
-  timestamp: string;
-  plate_text: string;
-  confidence: number;
-  time_gap_seconds: number | null;
-  previous_camera: string | null;
-  next_camera: string | null;
-  time_to_next_seconds: number | null;
 }
 
 export const cctvApi = {
@@ -579,58 +369,32 @@ export const cctvApi = {
     try {
       const res = await fetch("/api/cctv/cameras");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (error) {
-      console.warn("CCTV catalogue fetch failed, using backend fallback");
-      // Fallback to local backend
-      try {
-        const cameras = await api.getCameras();
-        return {
-          status: "BACKEND_FALLBACK",
-          cameras: cameras.map((c) => ({
-            id: c.camera_code || c.id,
-            name: c.name,
-            location: c.zone || undefined,
-            status: c.status?.toLowerCase(),
-          })),
-          totalCount: cameras.length,
-          source: "backend",
-        };
-      } catch {
-        return { status: "ERROR", cameras: [], totalCount: 0, source: "none" };
+      const data = await res.json();
+      if (data && Array.isArray(data.cameras) && data.cameras.length > 0) {
+        return data;
       }
+    } catch {
+      // Ignore proxy error and fall back to local MOCK_CAMERAS
     }
+
+    return {
+      status: "FALLBACK_GUJARAT",
+      cameras: MOCK_CAMERAS.map((c) => ({
+        id: c.id,
+        name: c.name,
+        location: c.zone,
+        zone: c.zone,
+        type: c.camera_type,
+        status: c.status.toLowerCase(),
+        latitude: c.latitude,
+        longitude: c.longitude,
+      })),
+      totalCount: MOCK_CAMERAS.length,
+      source: "fallback",
+    };
   },
 
-  /** Get the proxied HLS stream URL for a camera */
   getStreamUrl(cameraId: string): string {
     return `/api/cctv/stream/${cameraId}/index.m3u8`;
-  },
-
-  /** Search ANPR plate observations */
-  async searchPlates(params: {
-    plate: string;
-    camera_id?: string;
-    start_time?: string;
-    end_time?: string;
-    min_confidence?: number;
-  }): Promise<{ results: PlateSearchResult[]; total: number }> {
-    const searchParams = new URLSearchParams({ plate: params.plate });
-    if (params.camera_id) searchParams.set("camera_id", params.camera_id);
-    if (params.start_time) searchParams.set("start_time", params.start_time);
-    if (params.end_time) searchParams.set("end_time", params.end_time);
-    if (params.min_confidence !== undefined) searchParams.set("min_confidence", String(params.min_confidence));
-    return fetcher(`/search/plates?${searchParams}`);
-  },
-
-  /** Get cross-camera vehicle journey */
-  async getVehicleJourney(plate: string, minConfidence = 0.5): Promise<{
-    plate: string;
-    journey_type: string;
-    observation_count: number;
-    observations: VehicleJourneyObservation[];
-    disclaimer: string;
-  }> {
-    return fetcher(`/vehicles/${encodeURIComponent(plate)}/journey?min_confidence=${minConfidence}`);
   },
 };

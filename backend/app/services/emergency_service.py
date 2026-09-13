@@ -2,7 +2,7 @@ import uuid
 import logging
 from datetime import datetime, timedelta, timezone
 import asyncio
-from typing import Optional
+from typing import Any, Optional
 import httpx
 
 try:
@@ -399,8 +399,19 @@ class EmergencyService:
         if not camera_events:
             return None
 
+        def _parse_event_ts(e: dict) -> datetime:
+            ts = e.get("timestamp")
+            if isinstance(ts, datetime):
+                return ts
+            if isinstance(ts, str):
+                try:
+                    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                except Exception:
+                    pass
+            return datetime.utcnow()
+
         # Sort by timestamp
-        sorted_events = sorted(camera_events, key=lambda e: e.get("timestamp", datetime.utcnow()))
+        sorted_events = sorted(camera_events, key=_parse_event_ts)
         
         # Use first event as reference
         first_event = sorted_events[0]

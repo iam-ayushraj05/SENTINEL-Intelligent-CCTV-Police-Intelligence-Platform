@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Any
 
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,6 +35,26 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
     cors_origins: list[str] = ["*"]
+    
+    try:
+        from pydantic import field_validator
+
+        @field_validator("cors_origins", mode="before")
+        @classmethod
+        def assemble_cors_origins(cls, v: Any) -> list[str]:
+            if isinstance(v, str):
+                if v.startswith("[") and v.endswith("]"):
+                    try:
+                        import json
+                        return json.loads(v)
+                    except Exception:
+                        pass
+                return [i.strip() for i in v.split(",") if i.strip()]
+            if isinstance(v, list):
+                return v
+            return ["*"]
+    except Exception:
+        pass
     
     # CCTV Resource Platform
     sentinel_cctv_email: str = ""

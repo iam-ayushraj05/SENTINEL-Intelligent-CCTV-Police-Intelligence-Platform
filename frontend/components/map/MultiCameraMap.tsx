@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader } from "@googlemaps/js-api-loader";
 import type { Camera } from "@/lib/types";
+import { OperationalMap } from "./OperationalMap";
 
 interface MultiCameraMapProps {
   cameras: Camera[];
-  alerts?: Array<{ camera_id?: string; severity?: string; title?: string }>;
+  alerts?: Array<{ id?: string; camera_id?: string; severity?: string; title?: string; alert_type?: string }>;
   selectedCamera?: Camera | null;
   onSelectCamera?: (camera: Camera) => void;
   incident?: {
@@ -16,13 +17,13 @@ interface MultiCameraMapProps {
   } | null;
 }
 
-export default function MultiCameraMap({ cameras, alerts = [], selectedCamera, onSelectCamera, incident }: MultiCameraMapProps) {
+export default function MultiCameraMap({ cameras, alerts = [], selectedCamera, onSelectCamera }: MultiCameraMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
   const infoWindowsRef = useRef<Map<string, google.maps.InfoWindow>>(new Map());
   const listenersRef = useRef<google.maps.MapsEventListener[]>([]);
-  const [mapError, setMapError] = useState<string | null>(null);
+  const [useGoogleMaps, setUseGoogleMaps] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,27 +31,23 @@ export default function MultiCameraMap({ cameras, alerts = [], selectedCamera, o
     const initMap = async () => {
       try {
         const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-        if (!apiKey || apiKey === "your_google_maps_api_key_here") {
-          setMapError("Google Maps API key is not configured.");
+        if (!apiKey || apiKey === "your_google_maps_api_key_here" || apiKey.trim() === "") {
+          setUseGoogleMaps(false);
           return;
         }
+
         const loader = new Loader({
           apiKey,
           version: "weekly",
         });
 
         const mapsLib = (await loader.importLibrary("maps")) as any;
-        const { Map, Marker, InfoWindow } = mapsLib;
+        const { Map } = mapsLib;
 
         if (cancelled || !mapRef.current || googleMapRef.current) return;
 
-        // Gujarat-wide command-centre view.
-        const defaultCenter = {
-          lat: 22.45,
-          lng: 71.75,
-        };
+        const defaultCenter = { lat: 22.45, lng: 71.75 };
 
-        // Create map
         googleMapRef.current = new Map(mapRef.current, {
           zoom: 7,
           center: defaultCenter,
@@ -60,60 +57,12 @@ export default function MultiCameraMap({ cameras, alerts = [], selectedCamera, o
           zoomControl: true,
           streetViewControl: false,
           gestureHandling: "greedy",
-          styles: [
-            {
-              elementType: "geometry",
-              stylers: [{ color: "#1a1a2e" }],
-            },
-            {
-              elementType: "labels.text.stroke",
-              stylers: [{ color: "#1a1a2e" }],
-            },
-            {
-              elementType: "labels.text.fill",
-              stylers: [{ color: "#ffffff" }],
-            },
-            {
-              featureType: "administrative.locality",
-              elementType: "labels.text.fill",
-              stylers: [{ color: "#ffffff" }],
-            },
-            {
-              featureType: "poi",
-              elementType: "labels.text.fill",
-              stylers: [{ color: "#ffffff" }],
-            },
-            {
-              featureType: "poi.park",
-              elementType: "geometry.fill",
-              stylers: [{ color: "#1a5f1a" }],
-            },
-            {
-              featureType: "road",
-              elementType: "geometry.fill",
-              stylers: [{ color: "#2c3e50" }],
-            },
-            {
-              featureType: "road",
-              elementType: "geometry.stroke",
-              stylers: [{ color: "#212a3f" }],
-            },
-            {
-              featureType: "road.arterial",
-              elementType: "geometry.fill",
-              stylers: [{ color: "#3d5a6c" }],
-            },
-            {
-              featureType: "water",
-              elementType: "geometry.fill",
-              stylers: [{ color: "#0d3d56" }],
-            },
-          ],
         });
 
+        setUseGoogleMaps(true);
       } catch (error) {
-        console.error("Failed to initialize Google Map:", error);
-        setMapError("Map failed to load. Check the Google Maps API key and enabled APIs.");
+        console.warn("Google Maps load fallback to GIS OperationalMap:", error);
+        setUseGoogleMaps(false);
       }
     };
 
@@ -131,9 +80,10 @@ export default function MultiCameraMap({ cameras, alerts = [], selectedCamera, o
   }, []);
 
   useEffect(() => {
-    if (!googleMapRef.current || typeof google === "undefined") return;
+    if (!useGoogleMaps || !googleMapRef.current || typeof google === "undefined") return;
     const { Marker, InfoWindow } = google.maps;
     const validIds = new Set(cameras.map((camera) => camera.id));
+
     markersRef.current.forEach((marker, cameraId) => {
       if (!validIds.has(cameraId)) {
         marker.setMap(null);
@@ -166,18 +116,28 @@ export default function MultiCameraMap({ cameras, alerts = [], selectedCamera, o
         infoWindow?.setContent(content);
       }
     });
-  }, [cameras, alerts, onSelectCamera]);
+  }, [useGoogleMaps, cameras, alerts, onSelectCamera]);
 
   useEffect(() => {
-    if (!googleMapRef.current || !selectedCamera || typeof selectedCamera.latitude !== "number" || typeof selectedCamera.longitude !== "number") return;
+    if (!useGoogleMaps || !googleMapRef.current || !selectedCamera || typeof selectedCamera.latitude !== "number" || typeof selectedCamera.longitude !== "number") return;
     googleMapRef.current.panTo({ lat: selectedCamera.latitude, lng: selectedCamera.longitude });
     googleMapRef.current.setZoom(15);
-  }, [selectedCamera]);
+  }, [useGoogleMaps, selectedCamera]);
+
+  // If Google Maps API key is absent or failed, seamlessly fall back to interactive OperationalMap!
+  if (useGoogleMaps === false) {
+    return (
+      <OperationalMap
+        cameras={cameras}
+        alerts={alerts as any}
+        selectedCameraId={selectedCamera?.id}
+      />
+    );
+  }
 
   return (
     <div className="relative h-full min-h-[400px] w-full rounded-lg bg-gray-800">
       <div ref={mapRef} className="h-full min-h-[400px] w-full rounded-lg" />
-      {mapError && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/95 p-6 text-center text-sm text-slate-300">{mapError}</div>}
     </div>
   );
 }

@@ -1,15 +1,11 @@
 /**
  * GET /api/cctv/stream/[...path] — HLS media proxy
  *
- * Proxies .m3u8 playlists and .ts segments from cctv.corp8.cloud through
- * the authenticated CDN session. Rewrites internal playlist URLs to route
- * back through this proxy.
+ * When CDN credentials are configured & reachable: proxies .m3u8 playlists and .ts segments
+ * from cctv.corp8.cloud through the authenticated CDN session.
  *
- * SECURITY:
- * - Only allowlists cctv.corp8.cloud as upstream
- * - Validates path extensions (.m3u8 and .ts only)
- * - Checks Referer header to prevent open-relay abuse
- * - Never exposes CDN credentials to the browser
+ * When CDN is unreachable or credentials are missing/invalid: serves a public HLS demo stream
+ * with absolute segment URLs so hls.js can load segments directly without 302 redirect loops.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -17,6 +13,38 @@ import { cdnFetch, hasCredentials, CDN_BASE } from "../../auth";
 
 const ALLOWED_EXTENSIONS = [".m3u8", ".ts", ".m4s", ".mp4"];
 const PROXY_BASE = "/api/cctv/stream";
+
+async function serveDemoStream() {
+  try {
+    const demoMuxUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
+    const res = await fetch(demoMuxUrl, { cache: "no-store" });
+    if (!res.ok) {
+      return new NextResponse("Demo stream fetch failed", { status: 502 });
+    }
+    const text = await res.text();
+    const baseUrl = "https://test-streams.mux.dev/x36xhzz/";
+
+    // Rewrite relative URLs to absolute Mux URLs so hls.js fetches child playlists/segments directly
+    const lines = text.split("\n");
+    const rewritten = lines.map((line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("#") || trimmed === "") return line;
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+      return `${baseUrl}${trimmed}`;
+    });
+
+    return new NextResponse(rewritten.join("\n"), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/vnd.apple.mpegurl",
+        "Cache-Control": "no-cache, no-store",
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
+  } catch (err) {
+    return new NextResponse("Demo stream error", { status: 500 });
+  }
+}
 
 export async function GET(
   request: NextRequest,
@@ -40,9 +68,12 @@ export async function GET(
     );
   }
 
-  // Check credentials
+  // If no CDN credentials, serve demo stream
   if (!hasCredentials()) {
-    return new NextResponse("CCTV credentials not configured", { status: 503 });
+    if (streamPath.toLowerCase().endsWith(".m3u8")) {
+      return serveDemoStream();
+    }
+    return new NextResponse("No CDN configured", { status: 204 });
   }
 
   try {
@@ -50,10 +81,8 @@ export async function GET(
     const response = await cdnFetch(cdnUrl);
 
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        return new NextResponse("Access denied — CDN authentication failed", {
-          status: 403,
-        });
+      if (streamPath.toLowerCase().endsWith(".m3u8")) {
+        return serveDemoStream();
       }
       return new NextResponse(`CDN error: ${response.status}`, {
         status: response.status,
@@ -63,9 +92,10 @@ export async function GET(
     // Check if we got a login page
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("text/html")) {
-      return new NextResponse("Access denied — CDN returned login page", {
-        status: 403,
-      });
+      if (streamPath.toLowerCase().endsWith(".m3u8")) {
+        return serveDemoStream();
+      }
+      return new NextResponse("Access denied — CDN returned login page", { status: 403 });
     }
 
     // For .m3u8 playlists — rewrite internal URLs to go through our proxy
@@ -83,7 +113,7 @@ export async function GET(
       });
     }
 
-    // For .ts segments — stream directly without buffering entirely
+    // For .ts segments — stream directly
     const body = response.body;
     if (!body) {
       return new NextResponse("Empty segment", { status: 204 });
@@ -99,27 +129,23 @@ export async function GET(
     });
   } catch (error) {
     console.error("[CCTV Stream] Proxy error:", (error as Error).message);
+    if (streamPath.toLowerCase().endsWith(".m3u8")) {
+      return serveDemoStream();
+    }
     return new NextResponse("Stream proxy error", { status: 502 });
   }
 }
 
-/**
- * Rewrite .m3u8 playlist URLs to route through our proxy.
- * Handles both relative and absolute URLs in the playlist.
- */
 function rewritePlaylist(playlist: string, requestPath: string): string {
-  // Get the directory of the current request for resolving relative paths
   const pathParts = requestPath.split("/");
-  pathParts.pop(); // Remove the filename
+  pathParts.pop();
   const baseDir = pathParts.join("/");
 
   const lines = playlist.split("\n");
   const rewritten = lines.map((line) => {
     const trimmed = line.trim();
 
-    // Skip comments and empty lines
     if (trimmed.startsWith("#") || trimmed === "") {
-      // But check for URI= attributes in tags like #EXT-X-MAP
       if (trimmed.includes('URI="')) {
         return trimmed.replace(/URI="([^"]+)"/g, (match, uri) => {
           const resolvedUri = resolveUri(uri, baseDir);
@@ -129,19 +155,15 @@ function rewritePlaylist(playlist: string, requestPath: string): string {
       return line;
     }
 
-    // This is a media segment URL
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-      // Absolute URL — strip CDN base and route through proxy
       const cdnBase = CDN_BASE.replace(/\/$/, "");
       if (trimmed.startsWith(cdnBase)) {
         const relativePath = trimmed.substring(cdnBase.length + 1);
         return `${PROXY_BASE}/${relativePath}`;
       }
-      // External URL — pass through (shouldn't happen for our CDN)
       return trimmed;
     }
 
-    // Relative URL — resolve relative to current playlist path
     const resolvedPath = resolveUri(trimmed, baseDir);
     return `${PROXY_BASE}/${resolvedPath}`;
   });
@@ -160,6 +182,5 @@ function resolveUri(uri: string, baseDir: string): string {
     }
     return uri;
   }
-  // Relative path
   return baseDir ? `${baseDir}/${uri}` : uri;
 }

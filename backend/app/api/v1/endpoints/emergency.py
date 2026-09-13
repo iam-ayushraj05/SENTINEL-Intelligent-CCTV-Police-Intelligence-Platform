@@ -1656,3 +1656,31 @@ async def download_case_report_document(
         logger.error("Failed to decrypt document %s: %s", doc.storage_key, exc)
         raise HTTPException(status_code=500, detail="Failed to retrieve document file")
 
+
+@router.post("/correlate")
+async def correlate_multi_camera_events(
+    payload: dict,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Correlates multi-camera AI detection events across time and location into a single unified Emergency Case with timeline.
+    """
+    events = payload.get("camera_events", [])
+    if not events:
+        raise HTTPException(status_code=400, detail="camera_events list is required")
+
+    incident = await EmergencyService.correlate_multi_camera_events(db, events)
+    if not incident:
+        raise HTTPException(status_code=500, detail="Failed to correlate multi-camera events")
+
+    return {
+        "status": "SUCCESS",
+        "case_number": incident.incident_code,
+        "incident_id": str(incident.id),
+        "title": incident.title,
+        "severity": incident.severity,
+        "total_correlated_events": len(events),
+        "camera_id": str(incident.camera_id) if incident.camera_id else None,
+    }
+
+

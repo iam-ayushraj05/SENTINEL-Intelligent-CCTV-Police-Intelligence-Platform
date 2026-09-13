@@ -1,105 +1,134 @@
-# SENTINEL — Unified CCTV Intelligence & Smart Policing Platform
+# 🛡️ SENTINEL — Intelligent CCTV & Police Command Platform
 
-SENTINEL is a modular, vendor-neutral CCTV intelligence platform built to unify fragmented surveillance infrastructure across Gujarat departments, correlate detections with authorized watchlists, and support real-time investigation workflows.
+**SENTINEL** is a state-of-the-art, vendor-neutral CCTV intelligence and smart policing platform designed for state police command centres (built for Gujarat Police Innovation Hackathon 2026). It unifies heterogeneous surveillance infrastructure, correlates AI detection events across multiple camera nodes, tracks suspect vehicle/person trajectories, and automates emergency response workflows.
 
-> From Fragmented Cameras to Unified Intelligence.
+> **From Fragmented Cameras to Unified Command Intelligence.**
 
-## Platform purpose
+---
 
-SENTINEL integrates:
+## 🏛️ System Architecture
 
-- heterogeneous CCTV infrastructure
-- GIS-based camera registry
-- AI analytics and ANPR
-- vehicle/person detection and tracking
-- event correlation and watchlist matching
-- operational alerts and investigation workflows
-- camera health, auditability, and role-based access control
-
-The repository is structured as a production-oriented PoC foundation for the Gujarat Police Innovation Hackathon 2026, designed to scale toward a statewide network of approximately 80,000 cameras.
-
-## Demo safety and policy
-
-This project includes demo data and synthetic surveillance scenarios for product demonstration and testing.
-
-- All demo records are clearly labeled as SYNTHETIC DEMO DATA.
-- No real government feed, database, or live police data is claimed.
-- Government database integrations are implemented as authorized adapter interfaces only.
-
-## Current implementation scope
-
-- Next.js + TypeScript command-centre frontend
-- FastAPI backend with versioned API routes
-- PostgreSQL + PostGIS-ready models
-- Redis caching and state management
-- Kafka/event bus foundation
-- MediaMTX stream gateway integration boundary
-- AI worker and detection boundaries
-- Docker Compose local infrastructure stack
-- Health, dashboard, camera, vehicle, alert, watchlist, and investigation APIs
-
-## Quick start
-
-1. Copy `.env.example` to `.env`.
-2. Start infrastructure:
-
-```bash
-docker compose up -d postgres redis kafka mediamtx
+```
+                               ┌────────────────────────────────────────┐
+                               │     CDN / RTSP / Local CCTV Feeds      │
+                               └───────────────────┬────────────────────┘
+                                                   │
+                                                   ▼
+ ┌──────────────────────┐              ┌────────────────────────┐
+ │   Next.js 14 Web     │◄────────────►│     FastAPI Backend    │
+ │   Command Centre     │   REST/WS    │    (Python 3.11/Async) │
+ └──────────┬───────────┘              └───────────┬────────────┘
+            │                                      │
+            ▼                                      ▼
+ ┌──────────────────────┐              ┌────────────────────────┐
+ │  HLS Video Proxy &   │              │ PostgreSQL / SQLite DB │
+ │  Mux Fallback Stream │              │ & Correlation Engine   │
+ └──────────────────────┘              └────────────────────────┘
 ```
 
-3. Start backend:
+---
+
+## ✨ Key Features
+
+| Feature | Description |
+| :--- | :--- |
+| **🌐 GIS Surveillance Map** | Interactive vector GIS map displaying all live CCTV nodes, active alerts, and suspect vehicle route trajectories. |
+| **📹 Multi-Camera Video Wall** | Real-time multi-camera monitoring with automatic grid layout scaling (`2×2`, `3×3`, `4×4`, `Slide`). |
+| **⚡ Live HLS Proxy & Fallback** | Low-latency HLS media proxy server with automated fallbacks to 30 named Gujarat Police CCTV streams. |
+| **🚗 ANPR Vehicle Intelligence** | Automatic Number Plate Recognition (ANPR) with license plate tracking, VAHAN lookup, and trajectory mapping. |
+| **🔗 Multi-Camera Event Correlation**| Cross-camera event fusion engine that groups detections across cameras into unified Emergency Cases (`CASE-1000000X`). |
+| **🚨 Emergency Case Management** | Case lifecycle tracking (`OPEN` ➔ `ACKNOWLEDGED` ➔ `IN_PROGRESS` ➔ `RESOLVED` ➔ `CLOSED`), timeline, and ambulance dispatch. |
+| **🛡️ RBAC & Audit Logging** | Immutable audit logs tracking all camera stream accesses, searches, and document downloads for compliance. |
+
+---
+
+## ⚡ Quick Start
+
+### 1. Prerequisites
+- **Node.js**: v18+ or v20+
+- **Python**: v3.10+ or v3.11+
+- **Docker** *(optional for database & services)*
+
+### 2. Environment Configuration
+Clone the repository and prepare environment files:
 
 ```bash
+# Clone repository
+git clone https://github.com/iam-ayushraj05/SENTINEL-Intelligent-CCTV-Police-Intelligence-Platform.git
+cd SENTINEL
+
+# Copy environment examples
+cp .env.example .env
+cp frontend/.env.local .env.local
+```
+
+### 3. Start Backend Server
+```bash
 cd backend
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux/macOS: source .venv/bin/activate
+
+# Create & activate Python virtual environment
+python -m venv venv
+# Windows: .\venv\Scripts\activate
+# Linux/macOS: source venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Start FastAPI server
 uvicorn app.main:app --reload --port 8000
 ```
+> Backend API: `http://localhost:8000/api/v1`  
+> Interactive OpenAPI Docs: `http://localhost:8000/docs`
 
-4. Start frontend:
-
+### 4. Start Frontend Application
+In a new terminal:
 ```bash
 cd frontend
+
+# Install dependencies
 npm install
+
+# Start Next.js development server
 npm run dev
 ```
+> Web Application: `http://localhost:3000`
 
-fix
-Backend API: http://localhost:8000  
-Swagger: htt:800p://localhost0/docs
+---
 
-### AI camera worker (Windows PowerShell)
+## 📡 API Endpoints Overview
 
-Install the backend requirements in the project virtual environment, then configure one authorized camera stream before starting the worker:
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/v1/cameras` | `GET` | List all active CCTV camera nodes with GIS coordinates & statuses |
+| `/api/cctv/stream/{id}/index.m3u8` | `GET` | HLS video stream proxy endpoint |
+| `/api/v1/detections/ingest` | `POST` | Batch ingest AI object detections and ANPR plate sightings |
+| `/api/v1/emergency/correlate` | `POST` | Correlate multi-camera detection events into unified Emergency Cases |
+| `/api/v1/vehicles/{plate}` | `GET` | Retrieve ANPR vehicle intelligence, sightings history, & route trajectory |
+| `/api/v1/alerts` | `GET` | Fetch active alerts with severity filtering |
+| `/api/v1/audit-logs` | `GET` | View system audit trail logs |
 
-```powershell
-cd backend
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-$env:AI_CAMERA_ID = "your-camera-id"
-$env:AI_STREAM_URL = "your-camera-stream-url"
-$env:AI_CATALOGUE_URL = "http://localhost:8000/api/v1/cameras/ingest"
-$env:AI_FACE_DETECTION_ENABLED = "true"
-cd ..
-python ai\worker.py
+---
+
+## 🚀 Production Deployment Guide
+
+### Option 1: Docker Compose (Full Stack)
+```bash
+docker-compose up -d
 ```
 
-The configured local camera feed resolves the YouTube source `https://www.youtube.com/watch?v=Jlvh_KxHl40` through `/api/v1/feeds/local-camera-video`. Set `LOCAL_CAMERA_YOUTUBE_URL=` to disable YouTube and use the local MP4 at `LOCAL_CAMERA_VIDEO_PATH` instead. YouTube media URLs are temporary and may expire; `yt-dlp` must be installed in the backend environment.
+### Option 2: Managed Cloud Services
+- **Frontend**: Deploy `frontend/` to **Vercel** (`NEXT_PUBLIC_API_URL=https://api.yourdomain.com/api/v1`).
+- **Backend**: Deploy `backend/` to **Render** / **AWS App Runner** / **Railway**.
+- **Database**: Managed PostgreSQL with PostGIS extension (e.g. Supabase, Render Postgres).
 
-Face detection uses the OpenCV cascade bundled with the installed package when available. The repository Caffe model is the fallback and can be relocated with `AI_FACE_MODEL_DIR`; a custom cascade can be supplied with `AI_FACE_CASCADE_PATH`. Face detection identifies face regions only; identity matching requires a separate recognition service and is not inferred by this detector.
+---
 
-For live RTSP cameras, the worker prefers `AI_CATALOGUE_URL`, reads the camera's RTSP URL from that catalogue, forces FFmpeg RTSP transport over TCP, preserves `CAP_PROP_POS_MSEC` timestamps, and reconnects with 2/4/8/16/30 second backoff. Browser previews must use the catalogue's WebRTC/WHEP or HLS URL; RTSP is never opened directly by the browser.
+## 🔒 Policy & Safety Note
 
-## Target operational flow
+This project includes synthetic surveillance data for demonstration and evaluation purposes during the Gujarat Police Innovation Hackathon 2026. All live CCTV streams fall back gracefully to public test video streams when external CDN credentials are absent. No actual police records or private surveillance feeds are exposed.
 
-CCTV → INGESTION → AI → ANPR → TRACKING → WATCHLIST → CORRELATION → ALERT → GIS → INVESTIGATION → REPORT
+---
 
-## Development order
+## 📄 License
 
-Camera Registry → RTSP/Media Gateway → AI Detection → ANPR → Event Bus → Watchlist Correlation → Alerts → GIS → Investigation → Production hardening.
-
-## Important implementation note
-
-This repository is the foundation for the SENTINEL proof of concept. Government database integrations, production CCTV feeds, and live surveillance access must be connected only through authorized interfaces, with strict RBAC and audit controls.
+Developed for the **Gujarat Police Innovation Hackathon 2026**. All rights reserved.

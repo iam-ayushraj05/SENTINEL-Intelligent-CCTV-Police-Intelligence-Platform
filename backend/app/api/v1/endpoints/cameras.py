@@ -452,15 +452,6 @@ async def camera_health_check(camera_id: str, db: AsyncSession = Depends(get_db)
         latency_ms=health.get("latency_ms"),
         checked_at=datetime.utcnow(),
     )
-    db.add(health_evt)
-    await db.commit()
-
-    return CameraHealthCheckResponse(
-        camera_id=camera.id,
-        status=camera.status,
-        latency_ms=health["latency_ms"],
-        checked_at=datetime.utcnow(),
-    )
 
 
 @router.get("/{camera_id}/events")

@@ -5,10 +5,16 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-import docx
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
+try:
+    import docx
+    from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+    logger_init = logging.getLogger("sentinel.case_report_generator")
+    logger_init.warning("python-docx not installed. Case report generation will be unavailable. Run: pip install python-docx")
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -126,12 +126,12 @@ export default function CamerasPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [layout, handleSlideNext, handleSlidePrev]);
 
-  // ---- Active streams tracking (limit concurrent) ----
+  // ---- Active streams tracking (matches selected grid layout capacity) ----
   const activeCameras = useMemo(() => {
     if (layout === "SLIDE") return currentSlideCamera ? [currentSlideCamera] : [];
     if (layout === "LIST") return [];
-    return gridCameras.slice(0, MAX_CONCURRENT_STREAMS);
-  }, [layout, gridCameras, currentSlideCamera]);
+    return gridCameras.slice(0, layoutConfig.maxVisible);
+  }, [layout, gridCameras, currentSlideCamera, layoutConfig.maxVisible]);
 
   return (
     <div className="p-4 md:p-6 space-y-4">
